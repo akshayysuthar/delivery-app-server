@@ -13,7 +13,7 @@ const orderSchema = new mongoose.Schema({
   },
   deliveryPartner: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: "DeliveryParnter",
+    ref: "DeliveryPartner",
   },
   branch: {
     type: mongoose.Schema.Types.ObjectId,
@@ -22,39 +22,70 @@ const orderSchema = new mongoose.Schema({
   },
   items: [
     {
-      id: {
+      product: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Product",
         required: true,
       },
-      item: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Product",
-        required: true,
-      },
+      name: { type: String },
+      image: { type: String },
       count: { type: Number, required: true },
+      price: { type: Number, required: true },
+      itemTotal: { type: Number, required: true },
     },
   ],
+  statusTimestamps: {
+    confirmedAt: Date,
+    packedAt: Date,
+    arrivingAt: Date,
+    deliveredAt: Date,
+    cancelledAt: Date,
+  },
   deliveryLocation: {
     latitude: { type: Number, required: true },
     longitude: { type: Number, required: true },
+  },
+  deliveryAddress: {
     address: { type: String },
   },
   pickupLocation: {
     latitude: { type: Number, required: true },
     longitude: { type: Number, required: true },
-    address: { type: String },
+    address: { type: String, required: true },
+  },
+  slot: {
+    id: String,
+    label: String,
+    startTime: String,
+    endTime: String,
+    date: String,
   },
   deliveryPersonLocation: {
     latitude: { type: Number },
     longitude: { type: Number },
     address: { type: String },
   },
+  discount: {
+    type: { type: String },
+    amt: { type: String },
+  },
   status: {
     type: String,
     enum: ["available", "confirmed", "arriving", "delivered", "cancelled"],
     default: "available",
   },
+  payment: {
+    method: { type: String, enum: ["COD", "Online"], default: "COD" },
+    status: {
+      type: String,
+      enum: ["pending", "paid", "failed"],
+      default: "pending",
+    },
+  },
+
+  deliveryFee: { type: Number },
+  handlingFee: { type: Number },
+  savings: { type: Number },
   totalPrice: { type: Number, required: true },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },

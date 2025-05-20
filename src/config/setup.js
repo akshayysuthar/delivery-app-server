@@ -34,6 +34,10 @@ export const admin = new AdminJS({
     { resource: Models.Category },
     { resource: Models.Order },
     { resource: Models.Counter },
+    { resource: Models.ServiceArea },
+    { resource: Models.ServiceFees },
+    { resource: Models.Banner },
+    { resource: Models.Seller },
   ],
   branding: {
     companyName: "Delivery App ",

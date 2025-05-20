@@ -7,7 +7,17 @@ import { Customer, DeliveryPartner } from "../../models/user.js";
 export const createOrder = async (req, reply) => {
   try {
     const { userId } = req.user;
-    const { items, branch, totalPrice } = req.body;
+    const {
+      items,
+      branch,
+      totalPrice,
+      slot,
+      savings,
+      handlingFee,
+      deliveryFee,
+    } = req.body;
+
+    console.log("📦 Incoming Order Request:", req.body);
 
     const customerData = await Customer.findById(userId);
     const branchData = await Branch.findById(branch);
@@ -16,39 +26,44 @@ export const createOrder = async (req, reply) => {
       return reply.status(404).send({ message: "Customer not found" });
     }
 
+    if (!branchData) {
+      return reply.status(404).send({ message: "Branch not found" });
+    }
+
     const newOrder = new Order({
       customer: userId,
-      items: items.map((item) => ({
-        id: item.id,
-        item: item.item,
-        count: item.count,
-      })),
       branch,
+      slot,
+      handlingFee,
+      deliveryFee,
+      savings,
       totalPrice,
+
+      items: items.map((item) => ({
+        product: item.item._id,
+        name: item.item.name,
+        image: item.item.image,
+        count: item.count,
+        price: item.item.price,
+        itemTotal: item.count * item.item.price, // Correct field name here
+      })),
       deliveryLocation: {
-        latitude: customerData.LiveLocation.latitude,
-        longitude: customerData.LiveLocation.longitude,
-        address:
-          customerData.address ||
-          "No address available! you can contact the customer",
+        latitude: customerData?.LiveLocation?.latitude,
+        longitude: customerData?.LiveLocation?.longitude,
       },
       pickupLocation: {
-        latitude: branchData.LiveLocation.latitude,
-        longitude: branchData.LiveLocation.longitude,
+        latitude: branchData.location.latitude,
+        longitude: branchData.location.longitude,
         address:
           branchData.address ||
-          "No address available! you can contact support team",
+          "No address available! You can contact support team",
       },
     });
 
-    const saveOrder = await newOrder.save();
-    return reply.status(201).send(saveOrder);
-    await order.save();
-    return reply
-      .status(200)
-      .send({ message: "Order confirmed successfully", order });
+    const savedOrder = await newOrder.save();
+    return reply.status(201).send(savedOrder);
   } catch (error) {
-    console.log(error);
+    console.error("❌ Error in createOrder:", error);
     return reply.status(500).send({ message: "Failed to create order", error });
   }
 };
@@ -63,14 +78,14 @@ export const comfirmOrder = async (req, reply) => {
     if (!deliveryPerson) {
       return reply.status(404).send({ message: "Delivery Person not Found" });
     }
-    const order = await Order.findById(userId);
+    const order = await Order.findById(orderId);
     if (!order) return reply.status(404).send({ message: "ORder not found" });
 
     if (order.status !== "available") {
       return reply.status(400).send({ message: "ORder is not available " });
     }
 
-    order.deliveryPersonLocation = DeliveryPersonLocation;
+    order.deliveryPersonLocation = deliveryPersonLocation;
     order.deliveryPartner = userId;
     order.deliveryPersonLocation = {
       latitude: deliveryPersonLocation.LiveLocation.latitude,
@@ -78,7 +93,8 @@ export const comfirmOrder = async (req, reply) => {
       address: deliveryPersonLocation.address || "NO Location",
     };
 
-    req.serser.io.to(orderId).emit("orderComfirmed", order);
+    req.server.io.to(orderId).emit("orderConfirmed", order); // ✅ 'server'
+
     await order.save();
 
     return reply.send(order);
@@ -129,23 +145,20 @@ export const getOrder = async (req, reply) => {
   try {
     const { status, customerId, deliveryPartnerId, branchId } = req.query;
     let query = {};
-    if (status) {
-      query.status = status;
-    }
-    if (customerId) {
-      query.customer = customerId;
-    }
+    if (status) query.status = status;
+    if (customerId) query.customer = customerId;
     if (deliveryPartnerId) {
       query.deliveryPartner = deliveryPartnerId;
       query.branch = branchId;
     }
-
-    const orders = await Order.find(query).populate(
-      "customer branch items.item deliveryPartner"
-    );
+    console.log("Query:", query);
+    const orders = await Order.find(query)
+      .populate("customer branch items.product deliveryPartner")
+      .sort({ createdAt: -1 });
+    // console.log("Orders found:", orders);
     return reply.send(orders);
   } catch (error) {
-    console.log(error);
+    console.log("Get order error:", error);
     return reply.status(500).send({ message: "Failed to get order", error });
   }
 };
@@ -153,12 +166,16 @@ export const getOrder = async (req, reply) => {
 export const getOrderById = async (req, reply) => {
   try {
     const { orderId } = req.params;
-    const order = await Order.findById(orderId).populate(
-      "customer branch items.item deliveryPartner"
-    );
+    const order = await Order.findById(orderId)
+      // .populate(
+      //   "customer branch items.product items.item deliveryPartner"
+      // );
+      .populate("customer branch items.product deliveryPartner");
+
+    console.log(order);
 
     if (!order) {
-      return reply.status(404).send({ message: "ORder not found" });
+      return reply.status(404).send({ message: "Order not found" });
     }
 
     return reply.send(order);

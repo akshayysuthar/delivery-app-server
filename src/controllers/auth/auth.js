@@ -17,24 +17,55 @@ const generateTokens = (user) => {
 export const loginCustomer = async (req, reply) => {
   try {
     const { phone } = req.body;
+
+    console.log("Received login request for phone:", phone);
+
+    if (!phone || typeof phone !== "string" || phone.trim().length === 0) {
+      return reply
+        .status(400)
+        .send({ message: "Phone number is required and must be a string" });
+    }
+
     let customer = await Customer.findOne({ phone });
+
     if (!customer) {
+      console.log("No customer found, creating new user");
       customer = new Customer({
         phone,
+        email: phone,
         role: "Customer",
-        isActived: true,
+        isActived: false,
       });
       await customer.save();
+      console.log("New customer saved:", customer);
+
+      return reply.send({
+        message: "User created, onboarding needed",
+        accessToken: null,
+        refreshToken: null,
+        customer,
+        onboardingRequired: true,
+      });
     }
+
+    console.log("Existing customer found:", customer);
+
     const { accessToken, refreshToken } = generateTokens(customer);
+
+    console.log("Tokens generated");
+
     return reply.send({
       message: "Login Successful",
       accessToken,
       refreshToken,
       customer,
+      onboardingRequired: false,
     });
   } catch (error) {
-    return reply.status(500).send({ message: "An error occurred", error });
+    console.error("Login Error:", error);
+    return reply
+      .status(500)
+      .send({ message: "An error occurred", error: error.message });
   }
 };
 
@@ -114,5 +145,62 @@ export const fetchUser = async (req, reply) => {
     });
   } catch (error) {
     return reply.status(500).send({ message: "An error occurred", error });
+  }
+};
+
+export const onboarding = async (request, reply) => {
+  console.log(request);
+  try {
+    const userId = request.user?.userId;
+
+    console.log("🔍 Onboarding Request by userId:", userId);
+    console.log("📦 Body Payload:", request.body);
+
+    if (!userId) {
+      return reply
+        .status(401)
+        .send({ message: "Unauthorized. No user ID found." });
+    }
+
+    const { name, gender, address, LiveLocation } = request.body;
+
+    if (!name || !gender || !address || !LiveLocation) {
+      return reply.status(400).send({ message: "Missing required fields" });
+    }
+
+    const updatedCustomer = await Customer.findByIdAndUpdate(
+      userId,
+      {
+        $set: {
+          name,
+          gender,
+          address,
+          LiveLocation: {
+            latitude: LiveLocation.lat,
+            longitude: LiveLocation.lon,
+          },
+
+          onboardingStatus: "complete",
+          isActivated: true,
+        },
+      },
+      { new: true }
+    );
+
+    console.log("✅ Customer updated:", updatedCustomer);
+
+    if (!updatedCustomer) {
+      return reply.status(404).send({ message: "Customer not found" });
+    }
+
+    return reply.status(200).send({
+      message: "Onboarding completed successfully",
+      user: updatedCustomer,
+    });
+  } catch (error) {
+    console.error("🔥 Onboarding Error:", error);
+    return reply
+      .status(500)
+      .send({ message: "Internal Server Error", error: error.message });
   }
 };

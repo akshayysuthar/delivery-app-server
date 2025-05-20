@@ -1,10 +1,15 @@
 import mongoose from "mongoose";
-import { Pass, Stickies } from "react-bootstrap-icons";
+
 
 // Base User Schema
 
 const userSchema = new mongoose.Schema({
   name: { type: String },
+  geneder: {
+    type: String,
+    enum: ["male", "female"],
+  },
+
   role: {
     type: String,
     enum: ["Customer", "Admin", "DeliveryPartner", "Shopper", "FcAdmin"],
@@ -17,16 +22,31 @@ const userSchema = new mongoose.Schema({
 
 const customerSchema = new mongoose.Schema({
   ...userSchema.obj,
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
+  email: { type: String, unique: true, sparse: true },
+  password: { type: String },
   phone: { type: Number, required: true, unique: true },
   role: { type: String, enum: ["Customer"], default: "Customer" },
+  onboardingStatus: {
+    type: String,
+    enum: ["pending", "complete"],
+    default: "pending",
+  },
+  address: {
+    name: { type: String }, // name of customer
+    phone: { type: Number },
+    houseNo: { type: String },
+    streetAddress: { type: String },
+    landmark: { type: String },
+    city: { type: String },
+    state: { type: String },
+    pinCode: { type: String },
+  },
   LiveLocation: {
     latitude: { type: Number },
     longitude: { type: Number },
   },
-  address: { type: String },
 });
+
 const DeliveryPartnerSchema = new mongoose.Schema({
   ...userSchema.obj,
   email: { type: String, required: true, unique: true },
@@ -40,7 +60,7 @@ const DeliveryPartnerSchema = new mongoose.Schema({
   address: { type: String },
   branch: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: "Branch", // in porduction change to FC
+    ref: "Branch",
   },
 });
 
