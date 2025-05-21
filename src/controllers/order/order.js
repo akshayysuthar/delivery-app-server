@@ -48,8 +48,8 @@ export const createOrder = async (req, reply) => {
         itemTotal: item.count * item.item.price, // Correct field name here
       })),
       deliveryLocation: {
-        latitude: customerData?.LiveLocation?.latitude,
-        longitude: customerData?.LiveLocation?.longitude,
+        latitude: customerData?.LiveLocation?.latitude || "0",
+        longitude: customerData?.LiveLocation?.longitude || "0",
       },
       pickupLocation: {
         latitude: branchData.location.latitude,

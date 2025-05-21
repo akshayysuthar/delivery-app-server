@@ -83,12 +83,12 @@ export const loginDeliveryPartner = async (req, reply) => {
     if (!isMatch) {
       return reply.status(400).send({ message: "Invalid Credentails" });
     }
-    const { accessToken, refreshToken } = generateTokens(customer);
+    const { accessToken, refreshToken } = generateTokens(Customer);
     return reply.send({
       message: "Login Successful",
       accessToken,
       refreshToken,
-      customer,
+      Customer,
     });
   } catch (error) {
     return reply.status(500).send({ message: "An error occurred", error });
@@ -162,9 +162,9 @@ export const onboarding = async (request, reply) => {
         .send({ message: "Unauthorized. No user ID found." });
     }
 
-    const { name, gender, address, LiveLocation } = request.body;
+    const { name, gender, address } = request.body;
 
-    if (!name || !gender || !address || !LiveLocation) {
+    if (!name || !gender || !address) {
       return reply.status(400).send({ message: "Missing required fields" });
     }
 
@@ -175,10 +175,10 @@ export const onboarding = async (request, reply) => {
           name,
           gender,
           address,
-          LiveLocation: {
-            latitude: LiveLocation.lat,
-            longitude: LiveLocation.lon,
-          },
+          // LiveLocation: {
+          //   latitude: LiveLocation.lat || "0",
+          //   longitude: LiveLocation.lon || "0",
+          // },
 
           onboardingStatus: "complete",
           isActivated: true,
@@ -192,11 +192,18 @@ export const onboarding = async (request, reply) => {
     if (!updatedCustomer) {
       return reply.status(404).send({ message: "Customer not found" });
     }
+    const { accessToken, refreshToken: newRefreshToken } = generateTokens(
+      request.user
+    );
 
     return reply.status(200).send({
       message: "Onboarding completed successfully",
-      user: updatedCustomer,
+      accessToken,
+      refreshToken,
+      customer: updatedCustomer,
     });
+
+    console.log(reply);
   } catch (error) {
     console.error("🔥 Onboarding Error:", error);
     return reply

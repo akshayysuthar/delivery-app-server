@@ -9,6 +9,7 @@ import ServiceFees from "./serviceFees.js";
 import Seller from "./seller.js";
 import Offer from "./offer.js";
 import Banner from "./banner.js";
+import CustomerSuggestion from "./customersuggestion.js";
 
 export {
   Order,
@@ -24,4 +25,5 @@ export {
   Seller,
   Offer,
   Banner,
+  CustomerSuggestion
 };

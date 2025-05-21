@@ -38,6 +38,7 @@ export const admin = new AdminJS({
     { resource: Models.ServiceFees },
     { resource: Models.Banner },
     { resource: Models.Seller },
+    { resource: Models.CustomerSuggestion },
   ],
   branding: {
     companyName: "Delivery App ",
