@@ -4,7 +4,7 @@ import "dotenv/config.js";
 
 import { Admin } from "../models/user.js";
 
-export const PORT = process.env.PORT || 3000;
+export const PORT = process.env.PORT || 3001;
 export const COOKIE_PASSWORD = process.env.COOKIE_PASSWORD;
 
 const MongoDBStore = ConnectMongoDBSession(fastifySession);

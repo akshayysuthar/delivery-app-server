@@ -1,6 +1,5 @@
 import mongoose from "mongoose";
 
-
 // Base User Schema
 
 const userSchema = new mongoose.Schema({
@@ -72,6 +71,10 @@ const adminSchema = new mongoose.Schema({
   password: { type: String, required: true },
   phone: { type: Number, required: true, unique: true },
   role: { type: String, enum: ["Admin"], default: "Admin" },
+  branch: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Branch",
+  },
 });
 
 export const Customer = mongoose.model("Customer", customerSchema);
