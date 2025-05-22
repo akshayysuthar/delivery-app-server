@@ -11,6 +11,7 @@ import { admin, buildAdminRouter } from "./src/config/setup.js";
 
 const start = async () => {
   await connectDB(process.env.MONGO_URL);
+
   const app = fastify();
 
   // app.register(fastifySocketIO, {

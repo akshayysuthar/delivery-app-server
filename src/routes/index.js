@@ -6,9 +6,9 @@ import { homeRoutes } from "./home.js";
 import { loggingRoutes } from "./logging.js";
 import { orderRoutes } from "./order.js";
 import { categoryRoutes, productRoutes } from "./products.js";
+import fastifyCors from "@fastify/cors";
 
 const prefix = "/api";
-import fastifyCors from "@fastify/cors";
 
 export const registerRoutes = async (fastify) => {
   fastify.register(fastifyCors, {
