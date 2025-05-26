@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import { Admin, Customer, DeliveryPartner } from "../../models/user.js";
+import { Address } from "../../models/address.js";
 
 export const refreshToken = async (req, reply) => {
   const { refreshToken } = req.body;
@@ -88,7 +89,7 @@ export const loginCustomer = async (req, reply) => {
       accessToken,
       refreshToken,
       customer,
-      onboardingRequired: false,
+      // onboardingRequired: false,
     });
   } catch (error) {
     console.error("Login Error:", error);
@@ -99,9 +100,8 @@ export const loginCustomer = async (req, reply) => {
 };
 
 export const onboarding = async (request, reply) => {
-  console.log(request.body);
   try {
-    const userId = request.user?.userId;
+    const userId = request.user?.userId; // Set by JWT middleware
 
     console.log("🔍 Onboarding Request by userId:", userId);
     console.log("📦 Body Payload:", request.body);
@@ -115,18 +115,19 @@ export const onboarding = async (request, reply) => {
     const { name, gender, address } = request.body;
 
     if (!name || !gender || !address) {
-      return reply.status(400).send({ message: "Missing required fields" });
+      return reply.status(400).send({ message: "Missing required fields." });
     }
 
+    // Update customer
     const updatedCustomer = await Customer.findByIdAndUpdate(
       userId,
       {
         $set: {
           name,
           gender,
-          address,
+          address: address,
           onboardingStatus: "complete",
-          isActivated: true,
+          isActivated: true, // ✅ Make sure this matches schema
         },
       },
       { new: true }
@@ -135,7 +136,6 @@ export const onboarding = async (request, reply) => {
     if (!updatedCustomer) {
       return reply.status(404).send({ message: "Customer not found" });
     }
-    console.log("✅ Customer updated:", updatedCustomer);
 
     const { accessToken, refreshToken } = generateTokens(updatedCustomer);
 
@@ -232,7 +232,7 @@ export const fetchUser = async (req, reply) => {
     let user;
 
     if (role === "Customer") {
-      user = await Customer.findById(userId);
+      user = await Customer.findById(userId).populate("Address");
     } else if (role === "DeliveryPartner") {
       user = await DeliveryPartner.findById(userId);
     } else {
@@ -250,13 +250,34 @@ export const fetchUser = async (req, reply) => {
   }
 };
 
+export const fetchAddressById = async (req, reply) => {
+  try {
+    const { addressId } = req.params;
+    if (!addressId) {
+      return reply.status(400).send({ message: "Address ID is required" });
+    }
 
+    const address = await Address.findById(addressId);
+    if (!address) {
+      return reply.status(404).send({ message: "Address not found" });
+    }
+
+    return reply.send({ message: "Address fetched successfully", address });
+  } catch (error) {
+    console.error("Fetch address error:", error);
+    return reply
+      .status(500)
+      .send({ message: "Failed to fetch address", error: error.message });
+  }
+};
 export const universalLogin = async (req, reply) => {
   try {
     const { email, password } = req.body;
 
     if (!email || !password) {
-      return reply.status(400).send({ message: "Email and password are required" });
+      return reply
+        .status(400)
+        .send({ message: "Email and password are required" });
     }
 
     let user = null;
@@ -301,6 +322,75 @@ export const universalLogin = async (req, reply) => {
     });
   } catch (error) {
     console.error("Login error:", error);
-    return reply.status(500).send({ message: "Internal server error", error: error.message });
+    return reply
+      .status(500)
+      .send({ message: "Internal server error", error: error.message });
+  }
+};
+
+export const updateCustomerName = async (req, reply) => {
+  try {
+    const userId = req.user?.userId;
+    const { name } = req.body;
+    if (!name) {
+      return reply.status(400).send({ message: "Name is required" });
+    }
+
+    const updated = await Customer.findByIdAndUpdate(
+      userId,
+      { $set: { name } },
+      { new: true }
+    );
+    if (!updated)
+      return reply.status(404).send({ message: "Customer not found" });
+
+    return reply.send({
+      message: "Name updated",
+      customer: updated,
+    });
+  } catch (error) {
+    return reply
+      .status(500)
+      .send({ message: "Failed to update name", error: error.message });
+  }
+};
+
+// Update customer address
+export const updateCustomerAddress = async (req, reply) => {
+  try {
+    const userId = req.user?.userId || req.body.userId;
+    const { address } = req.body;
+    if (!address) {
+      return reply.status(400).send({ message: "Address is required" });
+    }
+
+    const customer = await Customer.findById(userId);
+    let addressDoc;
+
+    if (customer.address) {
+      // Try to update existing address
+      addressDoc = await Address.findByIdAndUpdate(
+        customer.address,
+        { ...address },
+        { new: true }
+      );
+      // If not found, create new address and link
+      if (!addressDoc) {
+        addressDoc = await Address.create({ ...address, customerId: userId });
+        customer.address = addressDoc._id;
+        await customer.save();
+      }
+    } else {
+      // No address linked, create new
+      addressDoc = await Address.create({ ...address, customerId: userId });
+      customer.address = addressDoc._id;
+      await customer.save();
+    }
+
+    return reply.send({ message: "Address updated", address: addressDoc });
+  } catch (error) {
+    return reply
+      .status(500)
+      .send({ message: "Failed to update address", error: error.message });
   }
 };

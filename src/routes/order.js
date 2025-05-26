@@ -7,6 +7,7 @@ import {
   getAllOrders,
   getAvailableOrdersForDeliveryPartner,
   acceptOrderByDeliveryPartner,
+  getPendingOrdersForBranch,
 } from "../controllers/order/order.js";
 import { verifyToken } from "../middleware/verifyToken.js";
 
@@ -16,18 +17,5 @@ export const orderRoutes = async (fastify, options) => {
 
   fastify.post("/order", createOrder);
   fastify.get("/order", getOrder);
-  fastify.patch("/order/:orderId/status", updateOrderStatus);
-  fastify.post("/order/:orderId/confirm", comfirmOrder);
   fastify.get("/order/:orderId", getOrderById);
-  fastify.get(
-    "/delivery/orders/available",
-    { preHandler: [verifyToken] },
-    getAvailableOrdersForDeliveryPartner
-  );
-
-  fastify.post(
-    "/delivery/orders/:orderId/accept",
-    { preHandler: [verifyToken] },
-    acceptOrderByDeliveryPartner
-  );
 };

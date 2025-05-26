@@ -1,5 +1,23 @@
 import Product from "../../models/products.js";
 
+export const getProductsBySubcategoryId = async (req, reply) => {
+  const { subcategoryId } = req.params;
+
+  try {
+    const products = await Product.find({ subcategory: subcategoryId }).exec();
+
+    if (products.length === 0) {
+      return reply
+        .status(404)
+        .send({ message: "No products found for this subcategory." });
+    }
+
+    return reply.send(products);
+  } catch (error) {
+    return reply.status(500).send({ message: "An error occurred", error });
+  }
+};
+
 export const getProductsByCategoryId = async (req, reply) => {
   const { categoryId } = req.params;
 
@@ -52,5 +70,38 @@ export const searchProducts = async (req, reply) => {
   } catch (error) {
     console.error("Search error:", error);
     return reply.status(500).send({ message: "An error occurred", error });
+  }
+};
+
+export const getProductById = async (req, reply) => {
+  try {
+    const { productId } = req.params;
+    if (!productId) {
+      return reply.status(400).send({ message: "Product ID is required" });
+    }
+    const product = await Product.findById(productId);
+    if (!product) {
+      return reply.status(404).send({ message: "Product not found" });
+    }
+    return reply.send({ product });
+  } catch (error) {
+    return reply
+      .status(500)
+      .send({ message: "Failed to fetch product", error: error.message });
+  }
+};
+
+export const getSuggestedProducts = async (req, reply) => {
+  try {
+    const products = await Product.find({
+      tags: { $exists: true, $not: { $size: 0 } },
+    });
+
+    return reply.send(products);
+  } catch (err) {
+    console.error("Error fetching suggested products:", err);
+    return reply
+      .status(500)
+      .send({ message: "Failed to fetch products", error: err });
   }
 };

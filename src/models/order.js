@@ -72,7 +72,7 @@ const orderSchema = new mongoose.Schema({
   status: {
     type: String,
     enum: [
-      "prewave",
+      // "prewave",
       "pending",
       "packing",
       "packed",
@@ -82,7 +82,7 @@ const orderSchema = new mongoose.Schema({
       "delivered",
       "cancelled",
     ],
-    default: "prewave",
+    default: "pending",
   },
   payment: {
     method: { type: String, enum: ["COD", "Online"], default: "COD" },

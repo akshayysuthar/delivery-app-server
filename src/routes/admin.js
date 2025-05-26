@@ -1,8 +1,9 @@
-import { universalLogin } from "../controllers/auth/auth.js";
 import {
-  getAllOrders,
-  getOrdersForDeliveryPartner,
-  getOrdersForFC,
+  comfirmOrder,
+  getAvailableOrdersForDelivery,
+  getOrderByIdFC,
+  getPendingOrdersForBranch,
+  updateOrderStatusByDeliveryPartner,
   updateOrderStatusByFC,
 } from "../controllers/order/order.js";
 import { authenticate } from "../middleware/verifyToken.js";
@@ -13,13 +14,16 @@ export const adminRoutes = async (fastify, options) => {
 
   fastify.decorate("authenticate", authenticate);
 
-  fastify.get("/order/all", getAllOrders);
-  fastify.get(
-    "/fc/orders",
-    { preHandler: [fastify.authenticate] },
-    getOrdersForFC
-  );
+  // Fulfiiment route
+  fastify.get("/orders/branch/:branchId/pending", getPendingOrdersForBranch);
+  fastify.get("/orders/branch/:orderId", getOrderByIdFC);
+  fastify.patch("/orders/branch/:orderId/status", updateOrderStatusByFC);
 
-  fastify.patch("/fc/order/:orderId/status", updateOrderStatusByFC);
-  fastify.get("/delivery/orders", getOrdersForDeliveryPartner);
+  // delivery route
+  fastify.get("/orders/delivery/available", getAvailableOrdersForDelivery);
+  fastify.post("/orders/delivery/:orderId/confirm", comfirmOrder);
+  fastify.patch(
+    "/orders/delivery/:orderId/status",
+    updateOrderStatusByDeliveryPartner
+  );
 };

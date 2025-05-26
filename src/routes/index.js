@@ -4,9 +4,11 @@ import { adminRoutes } from "./admin.js";
 import { authRoutes } from "./auth.js";
 import { homeRoutes } from "./home.js";
 import { loggingRoutes } from "./logging.js";
+import { offerRoutes } from "./offer.js";
 import { orderRoutes } from "./order.js";
 import { categoryRoutes, productRoutes } from "./products.js";
 import fastifyCors from "@fastify/cors";
+import { supportRoutes } from "./support.js";
 
 const prefix = "/api";
 
@@ -22,4 +24,6 @@ export const registerRoutes = async (fastify) => {
   fastify.register(homeRoutes, { prefix: prefix });
   fastify.register(adminRoutes, { prefix: prefix });
   fastify.register(loggingRoutes, { prefix });
+  fastify.register(offerRoutes, { prefix: prefix });
+  fastify.register(supportRoutes, { prefix: prefix });
 };

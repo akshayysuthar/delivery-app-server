@@ -8,6 +8,53 @@ import {
   Product,
 } from "../../models/index.js";
 
+/**
+ * Helper to format a slot object
+ */
+const formatSlot = (slot, date) => ({
+  id: slot._id,
+  label: slot.label,
+  startTime: slot.startTime,
+  endTime: slot.endTime,
+  cutoffTime: slot.cutoffTime,
+  available: true,
+  date: date.toISOString().split("T")[0],
+});
+
+/**
+ * Helper to get valid slots for a given date and area
+ */
+const getValidSlots = (area, date) => {
+  return (area.slots || [])
+    .filter((slot) => {
+      const [startHour, startMin] = slot.startTime.split(":").map(Number);
+      const slotTime = new Date(date);
+      slotTime.setHours(startHour, startMin, 0, 0);
+
+      return (
+        slotTime.getTime() - Date.now() >
+        (area.cutoffBufferMins || 60) * 60 * 1000
+      );
+    })
+    .map((slot) => formatSlot(slot, date));
+};
+
+/**
+ * Helper to get slots for multiple days
+ */
+const getSlotsForDays = (area, days = 2) => {
+  const slots = [];
+  for (let i = 0; i < days; i++) {
+    const date = new Date();
+    date.setDate(date.getDate() + i);
+    slots.push({
+      day: i === 0 ? "today" : `day${i + 1}`,
+      slots: getValidSlots(area, date),
+    });
+  }
+  return slots;
+};
+
 export const home = async (req, reply) => {
   const { pincode } = req.query;
 
@@ -16,20 +63,22 @@ export const home = async (req, reply) => {
   }
 
   try {
-    // 1. Find service area
+    // 1. Find service area and populate branches
     const area = await ServiceArea.findOne({
-      pinCode: Number(pincode),
+      pinCode: pincode,
       isActive: true,
-    }).populate("Branch");
+    })
+      .populate("branches")
+      .lean();
 
-    if (!area || area.Branch.length === 0) {
+    if (!area || !area.branches || area.branches.length === 0) {
       return reply
         .status(404)
         .send({ message: "No service area or FC found for this pincode." });
     }
 
-    // 2. Pick the first active FC
-    const assignedBranch = area.Branch.find((b) => b.isActive !== false);
+    // 2. Pick the first active FC (or return all active branches if needed)
+    const assignedBranch = area.branches.find((b) => b.isActive !== false);
 
     if (!assignedBranch) {
       return reply
@@ -37,46 +86,31 @@ export const home = async (req, reply) => {
         .send({ message: "No active fulfillment center available." });
     }
 
-    const formatSlot = (slot, date) => ({
-      id: slot._id,
-      label: slot.label,
-      startTime: slot.startTime,
-      endTime: slot.endTime,
-      cutoffTime: slot.cutoffTime,
-      available: true,
-      date: date.toISOString().split("T")[0], // Format as YYYY-MM-DD
-    });
-
-    const getValidSlots = (date) => {
-      return (area.Slots || [])
-        .filter((slot) => {
-          const [startHour, startMin] = slot.startTime.split(":").map(Number);
-          const slotTime = new Date(date);
-          slotTime.setHours(startHour, startMin, 0, 0);
-
-          return (
-            slotTime.getTime() - Date.now() >
-            (area.cutoffBufferMins || 60) * 60 * 1000
-          );
-        })
-        .map((slot) => formatSlot(slot, date));
-    };
-
-    const today = new Date();
-    const tomorrow = new Date();
-    tomorrow.setDate(today.getDate() + 1);
-
-    const todaySlots = getValidSlots(today);
-    const tomorrowSlots = getValidSlots(tomorrow);
+    // 3. Get slots for today and tomorrow (or more days if needed)
+    const slots = getSlotsForDays(area, 2);
 
     // 4. Fetch all service fees
-    const serviceFees = await ServiceFees.find();
+    const serviceFees = await ServiceFees.find().lean();
 
     // 5. Fetch banners
-    const banners = await Banner.find({ isActive: true });
+    const banners = await Banner.find({ isActive: true }).lean();
 
     // 6. Fetch offers
-    const offers = await Offer.find({ isActive: true });
+    const offers = await Offer.find({
+      isActive: true,
+      validTill: { $gte: new Date() },
+    });
+
+    // 7. (Optional) Fetch categories/products for productGroups if needed
+
+    // 9. Delivery and handling charges as arrays
+    const deliveryCharges = Array.isArray(area.deliveryCharges)
+      ? area.deliveryCharges
+      : area.deliveryCharges || 0;
+
+    const handlingCharges = Array.isArray(area.handlingCharges)
+      ? area.handlingCharges
+      : area.handlingCharges || 5;
 
     // 8. Construct response object
     const response = {
@@ -96,17 +130,17 @@ export const home = async (req, reply) => {
         serviceAreas: area.serviceAreas,
         supportedPinCodes: area.supportedPinCodes,
         location: {
-          lat: assignedBranch.location.latitude,
-          lng: assignedBranch.location.longitude,
+          lat: assignedBranch.location?.latitude,
+          lng: assignedBranch.location?.longitude,
         },
-        slots: {
-          today: todaySlots,
-          tomorrow: tomorrowSlots,
+        slots,
+        charges: {
+          deliveryCharges: deliveryCharges, // now always an array
+          handlingCharges: handlingCharges, // now always an array
         },
-        deliveryCharges: area.deliveryCharges,
-        handlingCharges: area.handlingCharges || 5,
         otherCharge: [],
-        codAvailable: assignedBranch.codAvailable,
+
+        codAvailable: assignedBranch.codAvailable || true,
         isActive: assignedBranch.isActive,
       },
       banners: banners.map((banner) => ({
@@ -126,7 +160,6 @@ export const home = async (req, reply) => {
         validTill: offer.validTill,
       })),
       productGroups: [], // Populate as needed
-
       config: {
         featureFlags: {
           enableSearch: true,

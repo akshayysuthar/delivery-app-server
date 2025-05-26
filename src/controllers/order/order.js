@@ -6,8 +6,8 @@ import { Customer, DeliveryPartner } from "../../models/user.js";
 
 export const createOrder = async (req, reply) => {
   try {
-    const { userId } = req.user;
     const {
+      userId,
       items,
       branch,
       totalPrice,
@@ -15,6 +15,7 @@ export const createOrder = async (req, reply) => {
       savings,
       handlingFee,
       deliveryFee,
+      discount,
     } = req.body;
 
     console.log("📦 Incoming Order Request:", req.body);
@@ -30,6 +31,20 @@ export const createOrder = async (req, reply) => {
       return reply.status(404).send({ message: "Branch not found" });
     }
 
+    // Use address fields from customerData.address
+    const address = customerData.address || {};
+    const deliveryLocation = {
+      latitude: address.location?.latitude || 0,
+      longitude: address.location?.longitude || 0,
+      houseNo: address.houseNo || "",
+      streetAddress: address.streetAddress || "",
+      landmark: address.landmark || "",
+      city: address.city || "",
+      state: address.state || "",
+      pinCode: address.pinCode || "",
+      country: address.country || "",
+    };
+
     const newOrder = new Order({
       customer: userId,
       branch,
@@ -37,20 +52,17 @@ export const createOrder = async (req, reply) => {
       handlingFee,
       deliveryFee,
       savings,
+      discount,
       totalPrice,
-
       items: items.map((item) => ({
         product: item.item._id,
         name: item.item.name,
         image: item.item.image,
         count: item.count,
         price: item.item.price,
-        itemTotal: item.count * item.item.price, // Correct field name here
+        itemTotal: item.count * item.item.price,
       })),
-      deliveryLocation: {
-        latitude: customerData?.LiveLocation?.latitude || "0",
-        longitude: customerData?.LiveLocation?.longitude || "0",
-      },
+      deliveryLocation,
       pickupLocation: {
         latitude: branchData.location.latitude,
         longitude: branchData.location.longitude,
@@ -70,39 +82,43 @@ export const createOrder = async (req, reply) => {
 
 export const comfirmOrder = async (req, reply) => {
   try {
-    const { userId } = req.user;
     const { orderId } = req.params;
-    const { deliveryPersonLocation } = req.body;
+    const { deliveryPersonLocation, userId } = req.body;
+
+    if (!userId) {
+      return reply.status(400).send({ message: "userId is required in body" });
+    }
 
     const deliveryPerson = await DeliveryPartner.findById(userId);
     if (!deliveryPerson) {
       return reply.status(404).send({ message: "Delivery Person not Found" });
     }
     const order = await Order.findById(orderId);
-    if (!order) return reply.status(404).send({ message: "ORder not found" });
+    if (!order) return reply.status(404).send({ message: "Order not found" });
 
-    if (order.status !== "available") {
-      return reply.status(400).send({ message: "ORder is not available " });
+    if (order.status !== "ready") {
+      return reply.status(400).send({ message: "Order is not available" });
     }
 
-    order.deliveryPersonLocation = deliveryPersonLocation;
     order.deliveryPartner = userId;
-    order.deliveryPersonLocation = {
-      latitude: deliveryPersonLocation.LiveLocation.latitude,
-      longitude: deliveryPersonLocation.LiveLocation.longitude,
-      address: deliveryPersonLocation.address || "NO Location",
-    };
-
-    req.server.io.to(orderId).emit("orderConfirmed", order); // ✅ 'server'
+    // Optionally update status to "assigned"
+    order.status = "assigned";
+    if (!order.statusTimestamps) order.statusTimestamps = {};
+    order.statusTimestamps.assignedAt = new Date();
 
     await order.save();
 
+    if (req.server?.io) {
+      req.server.io.to(orderId).emit("orderConfirmed", order);
+    }
+
     return reply.send(order);
   } catch (error) {
-    console.log(error);
-    return reply
-      .status(500)
-      .send({ message: "Failed to comfirm order", error });
+    console.error("Confirm order error:", error, error?.stack);
+    return reply.status(500).send({
+      message: "Failed to comfirm order",
+      error: error.message || error,
+    });
   }
 };
 
@@ -305,39 +321,6 @@ export const getOrdersForFC = async (req, reply) => {
   }
 };
 
-export const updateOrderStatusByFC = async (req, reply) => {
-  try {
-    const { orderId } = req.params;
-    const { status } = req.body;
-
-    const allowedStatuses = ["packing", "packed", "ready", "cancelled"];
-    if (!allowedStatuses.includes(status)) {
-      return reply.status(400).send({ message: "Invalid status update" });
-    }
-
-    const order = await Order.findById(orderId);
-    if (!order) return reply.status(404).send({ message: "Order not found" });
-
-    // Prevent overwriting final statuses
-    if (["cancelled", "delivered"].includes(order.status)) {
-      return reply
-        .status(400)
-        .send({ message: "Cannot modify completed order" });
-    }
-
-    order.status = status;
-    order.statusTimestamps[`${status}At`] = new Date();
-    await order.save();
-
-    req.server.io.to(orderId).emit("FCOrderUpdate", order);
-
-    return reply.send(order);
-  } catch (error) {
-    console.error("FC Order status update error:", error);
-    return reply.status(500).send({ message: "Failed to update order", error });
-  }
-};
-
 export const getOrdersForDeliveryPartner = async (req, reply) => {
   try {
     const { userId } = req.user;
@@ -416,5 +399,206 @@ export const acceptOrderByDeliveryPartner = async (req, reply) => {
   } catch (error) {
     console.error("Accept order error:", error);
     return reply.status(500).send({ message: "Failed to accept order", error });
+  }
+};
+
+
+
+
+
+function orderSummary(order) {
+  return {
+    _id: order._id,
+    status: order.status,
+    customer: order.customer?.name || order.customer,
+    deliveryPartner: order.deliveryPartner?.name || order.deliveryPartner,
+    branch: order.branch?.name || order.branch,
+    slot: order.slot,
+    totalPrice: order.totalPrice,
+    items: order.items?.map((item) => ({
+      product: item.product?.name || item.product,
+      count: item.count,
+      price: item.price,
+    })),
+    updatedAt: order.updatedAt,
+    statusTimestamps: order.statusTimestamps,
+  };
+}
+
+function setStatusTimestamp(order, status) {
+  if (!order.statusTimestamps) order.statusTimestamps = {};
+  const now = new Date();
+  switch (status) {
+    case "pending":
+      order.statusTimestamps.confirmedAt = now;
+      break;
+    case "packing":
+      order.statusTimestamps.packedAt = null; // reset packedAt if going back
+      break;
+    case "packed":
+      order.statusTimestamps.packedAt = now;
+      break;
+    case "arriving":
+      order.statusTimestamps.arrivingAt = now;
+      break;
+    case "delivered":
+      order.statusTimestamps.deliveredAt = now;
+      break;
+    case "cancelled":
+      order.statusTimestamps.cancelledAt = now;
+      break;
+    // Add more as needed
+    default:
+      break;
+  }
+}
+// ===============================================================
+export const getPendingOrdersForBranch = async (req, reply) => {
+  const { branchId } = req.params;
+  try {
+    const pendingStatuses = [
+      "pending",
+      "processing",
+      "packing",
+      "packed",
+      "ready",
+    ];
+    const orders = await Order.find({
+      branch: branchId,
+      status: { $in: pendingStatuses },
+    })
+      .populate("customer", "name phone email")
+      .populate("deliveryPartner", "name phone")
+      .select("customer slot status createdAt totalPrice items") // Only select needed fields
+      .sort({ createdAt: -1 });
+
+    return reply.send(orders);
+  } catch (error) {
+    console.error("Fetch pending orders for branch failed:", error);
+    return reply
+      .status(500)
+      .send({ message: "Failed to fetch pending orders", error });
+  }
+};
+export const getOrderByIdFC = async (req, reply) => {
+  try {
+    const { orderId } = req.params;
+
+    const order = await Order.findById(orderId)
+      .populate("customer", "name phone email")
+      .populate("branch", "name address")
+      .populate("items.product")
+      .populate("deliveryPartner", "name phone");
+
+    if (!order) {
+      return reply.status(404).send({ message: "Order not found" });
+    }
+
+    return reply.send(order);
+  } catch (error) {
+    console.error("Get order by ID error:", error);
+    return reply.status(500).send({ message: "Failed to get order", error });
+  }
+};
+export const updateOrderStatusByFC = async (req, reply) => {
+  try {
+    const { orderId } = req.params;
+    const { status } = req.body;
+
+    // Only allow FC to set these statuses
+    const allowedStatuses = ["packing", "packed", "ready", "cancelled"];
+    if (!allowedStatuses.includes(status)) {
+      return reply.status(400).send({ message: "Invalid status update" });
+    }
+
+    const order = await Order.findById(orderId);
+    if (!order) return reply.status(404).send({ message: "Order not found" });
+
+    // Prevent overwriting final statuses
+    if (["cancelled", "delivered"].includes(order.status)) {
+      return reply
+        .status(400)
+        .send({ message: "Cannot modify completed order" });
+    }
+
+    order.status = status;
+    setStatusTimestamp(order, status);
+    await order.save();
+
+    // Optional: notify via socket.io if needed
+    if (req.server?.io) {
+      req.server.io.to(orderId).emit("FCOrderUpdate", order);
+    }
+
+    return reply.send({ message: "Order status updated", order });
+  } catch (error) {
+    console.error("FC Order status update error:", error, error?.stack);
+    return reply.status(500).send({
+      message: "Failed to update order",
+      error: error.message || error,
+    });
+  }
+};
+export const getAvailableOrdersForDelivery = async (req, reply) => {
+  try {
+    const orders = await Order.find({ status: "ready" })
+      .populate("customer", "name phone address")
+      .populate("branch", "name address")
+      .populate("items.product")
+      .sort({ createdAt: -1 });
+
+    return reply.send(orders);
+  } catch (error) {
+    console.error("Fetch available orders for delivery failed:", error);
+    return reply
+      .status(500)
+      .send({ message: "Failed to fetch available orders", error });
+  }
+};
+export const updateOrderStatusByDeliveryPartner = async (req, reply) => {
+  try {
+    const { orderId } = req.params;
+    const { status } = req.body;
+    const { userId } = req.body; // or from req.user if using auth
+
+    // Only allow delivery partner to set these statuses
+    const allowedStatuses = ["arriving", "delivered", "cancelled"];
+    if (!allowedStatuses.includes(status)) {
+      return reply.status(400).send({ message: "Invalid status update" });
+    }
+
+    const order = await Order.findById(orderId);
+    if (!order) return reply.status(404).send({ message: "Order not found" });
+
+    // Only the assigned delivery partner can update
+    if (!order.deliveryPartner || order.deliveryPartner.toString() !== userId) {
+      return reply.status(403).send({ message: "Not authorized" });
+    }
+
+    // Prevent overwriting final statuses
+    if (["cancelled", "delivered"].includes(order.status)) {
+      return reply.status(400).send({ message: "Order already completed" });
+    }
+
+    order.status = status;
+    if (!order.statusTimestamps) order.statusTimestamps = {};
+    order.statusTimestamps[`${status}At`] = new Date();
+    await order.save();
+
+    // Optional: notify via socket.io
+    if (req.server?.io) {
+      req.server.io.to(orderId).emit("DeliveryOrderUpdate", order);
+    }
+
+    return reply.send({
+      message: "Order status updated",
+      order: orderSummary(order),
+    });
+  } catch (error) {
+    console.error("Delivery partner status update error:", error, error?.stack);
+    return reply.status(500).send({
+      message: "Failed to update order",
+      error: error.message || error,
+    });
   }
 };
