@@ -6,7 +6,7 @@ import "dotenv/config.js";
 import { Admin } from "../models/user.js";
 // import bcrypt from "bcrypt"; // Uncomment if using hashed passwords
 
-export const PORT = 3000;
+export const PORT = process.env.PORT || 3000;
 export const COOKIE_PASSWORD = process.env.COOKIE_PASSWORD;
 
 const MongoDBStore = ConnectMongoDBSession(fastifySession);
