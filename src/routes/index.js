@@ -14,7 +14,7 @@ const prefix = "/api";
 
 export const registerRoutes = async (fastify) => {
   fastify.register(fastifyCors, {
-    origin: "http://localhost:3000",
+    origin: ["http://localhost:3000", "https://fc-henna.vercel.app/"],
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], // Include PATCH here
   });
   fastify.register(authRoutes, { prefix: prefix });
