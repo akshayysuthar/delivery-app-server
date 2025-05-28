@@ -30,6 +30,7 @@ export const admin = new AdminJS({
     { resource: Models.Address },
     { resource: Models.DeliveryPartner },
     { resource: Models.Admin },
+    { resource: Models.FeaturedSection },
     { resource: Models.Picker },
     { resource: Models.BranchAdmin },
     { resource: Models.SellerUser },

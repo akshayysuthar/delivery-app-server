@@ -1,32 +1,32 @@
 import Category from "../../models/categories.js";
 import Subcategory from "../../models/subcatgories.js";
 
-export const getAllCategories = async (req, reply) => {
-  try {
-    const categories = await Category.find();
-    return reply.send(categories);
-  } catch (error) {
-    return reply.status(500).send({ message: "An error occurred", err });
-  }
-};
-
 // export const getAllCategories = async (req, reply) => {
 //   try {
 //     const categories = await Category.find();
-
-//     // Group categories by `group` field
-//     const grouped = categories.reduce((acc, category) => {
-//       const group = category.group || 'Other';
-//       if (!acc[group]) acc[group] = [];
-//       acc[group].push(category);
-//       return acc;
-//     }, {});
-
-//     return reply.send(grouped);
-//   } catch (err) {
+//     return reply.send(categories);
+//   } catch (error) {
 //     return reply.status(500).send({ message: "An error occurred", err });
 //   }
 // };
+
+export const getAllCategories = async (req, reply) => {
+  try {
+    const categories = await Category.find();
+
+    // Group categories by `group` field
+    const grouped = categories.reduce((acc, category) => {
+      const group = category.group || 'Other';
+      if (!acc[group]) acc[group] = [];
+      acc[group].push(category);
+      return acc;
+    }, {});
+
+    return reply.send(grouped);
+  } catch (err) {
+    return reply.status(500).send({ message: "An error occurred", err });
+  }
+};
 
 export const getAllCategoriesWithSubcategories = async (req, reply) => {
   try {

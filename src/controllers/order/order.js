@@ -52,7 +52,7 @@ export const createOrder = async (req, reply) => {
       handlingFee,
       deliveryFee,
       savings,
-      discount,
+      discount: req.body.discount, // ✅ Ensure this is included
       totalPrice,
       items: items.map((item) => ({
         product: item.item._id,
@@ -402,10 +402,6 @@ export const acceptOrderByDeliveryPartner = async (req, reply) => {
   }
 };
 
-
-
-
-
 function orderSummary(order) {
   return {
     _id: order._id,
@@ -485,10 +481,10 @@ export const getOrderByIdFC = async (req, reply) => {
     const { orderId } = req.params;
 
     const order = await Order.findById(orderId)
-      .populate("customer", "name phone email")
-      .populate("branch", "name address")
+      .populate("customer")
+      .populate("branch")
       .populate("items.product")
-      .populate("deliveryPartner", "name phone");
+      .populate("deliveryPartner");
 
     if (!order) {
       return reply.status(404).send({ message: "Order not found" });

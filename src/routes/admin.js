@@ -1,3 +1,4 @@
+import invoiceHandler from "../controllers/invoice/main.js";
 import {
   comfirmOrder,
   getAvailableOrdersForDelivery,
@@ -26,4 +27,5 @@ export const adminRoutes = async (fastify, options) => {
     "/orders/delivery/:orderId/status",
     updateOrderStatusByDeliveryPartner
   );
+  fastify.get("/order/:orderId/invoice", invoiceHandler);
 };

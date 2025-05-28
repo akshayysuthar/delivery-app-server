@@ -19,6 +19,7 @@ import Banner from "./banner.js";
 import CustomerSuggestion from "./customersuggestion.js";
 import Subcategory from "./subcatgories.js";
 import { Address } from "./address.js";
+import FeaturedSection from "./featuredSection.js";
 
 export {
   Order,
@@ -26,6 +27,7 @@ export {
   Admin,
   Picker,
   BranchAdmin,
+  FeaturedSection,
   Branch,
   Category,
   Subcategory,

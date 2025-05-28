@@ -1,3 +1,4 @@
+import FeaturedSection from "../../models/featuredSection.js";
 import Product from "../../models/products.js";
 
 export const getProductsBySubcategoryId = async (req, reply) => {
@@ -103,5 +104,20 @@ export const getSuggestedProducts = async (req, reply) => {
     return reply
       .status(500)
       .send({ message: "Failed to fetch products", error: err });
+  }
+};
+
+export const getFeaturedSections = async (req, reply) => {
+  try {
+    const sections = await FeaturedSection.find()
+      .populate("products") // populate product details
+      .sort({ createdAt: -1 });
+
+    return reply.send({ sections });
+  } catch (err) {
+    console.error("Failed to fetch featured sections", err);
+    return reply
+      .status(500)
+      .send({ message: "Failed to fetch featured sections", error: err });
   }
 };
