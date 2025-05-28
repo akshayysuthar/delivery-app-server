@@ -394,3 +394,41 @@ export const updateCustomerAddress = async (req, reply) => {
       .send({ message: "Failed to update address", error: error.message });
   }
 };
+
+export const updatelocation = async (request, reply) => {
+  try {
+    const { latitude, longitude } = request.body;
+    const userId = request.user?.userId || request.body.userId;
+
+    if (!userId || latitude === undefined || longitude === undefined) {
+      return reply
+        .code(400)
+        .send({ error: "userId, latitude, and longitude are required." });
+    }
+
+    const user = await Customer.findById(userId);
+    if (!user) {
+      return reply.code(404).send({ error: "User not found." });
+    }
+
+    // Ensure address exists
+    if (!user.address) user.address = {};
+
+    user.address.location = {
+      latitude,
+      longitude,
+      updatedAt: new Date(),
+    };
+
+    await user.save();
+
+    return reply.send({
+      success: true,
+      message: "Location updated successfully",
+      location: user.address.location,
+    });
+  } catch (err) {
+    request.log.error(err);
+    return reply.code(500).send({ error: "Internal server error" });
+  }
+};

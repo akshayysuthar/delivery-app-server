@@ -1,4 +1,5 @@
 import {
+  updatelocation,
   fetchAddressById,
   fetchUser,
   loginCustomer,
@@ -40,4 +41,5 @@ export const authRoutes = async (fastify, options) => {
     { preHandler: [verifyToken] },
     onboarding
   );
+  fastify.post("/updatelocation", updatelocation);
 };

@@ -72,6 +72,7 @@ const customerSchema = new mongoose.Schema(
       location: {
         latitude: { type: Number },
         longitude: { type: Number },
+        updatedAt: { type: Date },
       },
     },
   },
