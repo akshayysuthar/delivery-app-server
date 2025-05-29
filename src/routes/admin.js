@@ -1,3 +1,5 @@
+import { getAnalytics } from "../controllers/analytics/analytics.js";
+import { exportAnalytics } from "../controllers/analytics/export.js";
 import invoiceHandler from "../controllers/invoice/main.js";
 import {
   comfirmOrder,
@@ -21,11 +23,13 @@ export const adminRoutes = async (fastify, options) => {
   fastify.patch("/orders/branch/:orderId/status", updateOrderStatusByFC);
 
   // delivery route
-  fastify.get("/orders/delivery/available", getAvailableOrdersForDelivery);
+  fastify.post("/orders/delivery/available", getAvailableOrdersForDelivery);
   fastify.post("/orders/delivery/:orderId/confirm", comfirmOrder);
   fastify.patch(
     "/orders/delivery/:orderId/status",
     updateOrderStatusByDeliveryPartner
   );
   fastify.get("/order/:orderId/invoice", invoiceHandler);
+  fastify.get("/analytics/analytics", getAnalytics);
+  fastify.get("/analytics/export", exportAnalytics);
 };

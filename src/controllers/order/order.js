@@ -55,7 +55,8 @@ export const createOrder = async (req, reply) => {
       discount: req.body.discount, // ✅ Ensure this is included
       totalPrice,
       items: items.map((item) => ({
-        product: item.item._id,
+        product: item.item.product, // ✅ Main Product ID
+        variantId: item.item.variantId, // ✅ Variant ID
         name: item.item.name,
         image: item.item.image,
         count: item.count,
@@ -537,25 +538,39 @@ export const updateOrderStatusByFC = async (req, reply) => {
 };
 export const getAvailableOrdersForDelivery = async (req, reply) => {
   try {
-    const orders = await Order.find({ status: "ready" })
+    const deliveryPartnerId = req.body.userId; // from auth middleware
+
+    // Fetch orders that are ready, assigned to this delivery partner, or delivered by this partner
+    const orders = await Order.find({
+      $or: [
+        { status: "ready" }, // available to all
+        {
+          status: { $in: ["assigned", "delivered"] },
+          deliveryPartner: deliveryPartnerId,
+        },
+      ],
+    })
       .populate("customer", "name phone address")
       .populate("branch", "name address")
       .populate("items.product")
       .sort({ createdAt: -1 });
 
-    return reply.send(orders);
+    // Split into available, assigned, and delivered arrays
+    const available = orders.filter((order) => order.status === "ready");
+    const assigned = orders.filter((order) => order.status === "assigned");
+    const delivered = orders.filter((order) => order.status === "delivered");
+
+    return reply.send({ available, assigned, delivered });
   } catch (error) {
-    console.error("Fetch available orders for delivery failed:", error);
-    return reply
-      .status(500)
-      .send({ message: "Failed to fetch available orders", error });
+    console.error("Fetch available/assigned/delivered orders failed:", error);
+    return reply.status(500).send({ message: "Failed to fetch orders", error });
   }
 };
+
 export const updateOrderStatusByDeliveryPartner = async (req, reply) => {
   try {
     const { orderId } = req.params;
-    const { status } = req.body;
-    const { userId } = req.body; // or from req.user if using auth
+    const { status, paymentStatus, paymentMethod, userId } = req.body;
 
     // Only allow delivery partner to set these statuses
     const allowedStatuses = ["arriving", "delivered", "cancelled"];
@@ -576,9 +591,20 @@ export const updateOrderStatusByDeliveryPartner = async (req, reply) => {
       return reply.status(400).send({ message: "Order already completed" });
     }
 
+    // Update order status
     order.status = status;
+
+    // Update payment status and method if provided
+    if (paymentStatus) {
+      order.payment.status = paymentStatus;
+    }
+    if (paymentMethod) {
+      order.payment.method = paymentMethod;
+    }
+
     if (!order.statusTimestamps) order.statusTimestamps = {};
     order.statusTimestamps[`${status}At`] = new Date();
+
     await order.save();
 
     // Optional: notify via socket.io
@@ -587,7 +613,7 @@ export const updateOrderStatusByDeliveryPartner = async (req, reply) => {
     }
 
     return reply.send({
-      message: "Order status updated",
+      message: "Order status and payment updated",
       order: orderSummary(order),
     });
   } catch (error) {
@@ -599,5 +625,25 @@ export const updateOrderStatusByDeliveryPartner = async (req, reply) => {
   }
 };
 
+// GET orders assigned to this delivery partner and not yet delivered
+export const getAssignedPendingOrdersForDeliveryPartner = async (
+  req,
+  reply
+) => {
+  try {
+    const deliveryPartnerId = req.body.userId; // assuming this is passed from middleware
 
+    const orders = await Order.find({
+      deliveryPartner: deliveryPartnerId,
+      status: { $ne: "delivered" }, // not delivered yet
+    })
+      .populate("customer")
+      .populate("branch")
+      .sort({ createdAt: -1 });
 
+    reply.send(orders);
+  } catch (err) {
+    console.error("Error fetching assigned pending orders:", err);
+    reply.status(500).send({ message: "Server Error" });
+  }
+};

@@ -93,7 +93,14 @@ export const home = async (req, reply) => {
     const serviceFees = await ServiceFees.find().lean();
 
     // 5. Fetch banners
-    const banners = await Banner.find({ isActive: true }).lean();
+    const banners = await Banner.find({
+      isActive: true,
+      $or: [
+        { Branch: assignedBranch._id },
+        { Branch: { $exists: false } },
+        { Branch: null },
+      ],
+    }).lean();
 
     // 6. Fetch offers
     const offers = await Offer.find({
@@ -139,6 +146,9 @@ export const home = async (req, reply) => {
           handlingCharges: handlingCharges, // now always an array
         },
         otherCharge: [],
+        minimumOrderAmount: area.minimumOrderAmount,
+        cutoffBufferMins: area.cutoffBufferMins,
+        freeDeliveryAbove: area.freeDeliveryAbove || null,
 
         codAvailable: assignedBranch.codAvailable || true,
         isActive: assignedBranch.isActive,

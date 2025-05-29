@@ -4,6 +4,7 @@ const offerSchema = new mongoose.Schema(
   {
     title: { type: String, required: true },
     code: { type: String, unique: true, sparse: true },
+    applyType: { type: Boolean, default: false },
     isActive: { type: Boolean, default: true },
     validTill: { type: Date },
     conditions: {
@@ -22,7 +23,6 @@ const offerSchema = new mongoose.Schema(
       freeDelivery: { type: Boolean },
       discountValue: { type: Number },
       discountType: { type: String, enum: ["flat", "percent"] },
-      // Add more reward types as needed
     },
     scope: {
       type: String,

@@ -39,14 +39,6 @@ const slotSchema = new mongoose.Schema(
   { _id: false }
 );
 
-const slotFeeSchema = new mongoose.Schema(
-  {
-    type: { type: String, required: true },
-    fee: { type: Number, required: true, min: 0 },
-  },
-  { _id: false }
-);
-
 const ServiceAreaSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },

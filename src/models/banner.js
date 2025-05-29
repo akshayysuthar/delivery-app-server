@@ -8,6 +8,7 @@ const bannerSchema = new mongoose.Schema(
       enum: ["subcategory", "category", "product", "url"],
       required: true,
     },
+    Branch: { type: mongoose.Schema.Types.ObjectId, ref: "Branch" },
     targetId: { type: String }, // e.g. categoryId, productId, or full URL
     metadata: { type: mongoose.Schema.Types.Mixed }, // extra details (optional)
     title: { type: String },

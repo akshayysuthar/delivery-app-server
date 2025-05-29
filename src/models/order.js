@@ -27,13 +27,18 @@ const orderSchema = new mongoose.Schema({
         ref: "Product",
         required: true,
       },
-      name: { type: String },
-      image: { type: String },
+      variantId: {
+        type: mongoose.Schema.Types.ObjectId,
+        required: true,
+      },
+      name: String,
+      image: String,
       count: { type: Number, required: true },
       price: { type: Number, required: true },
       itemTotal: { type: Number, required: true },
     },
   ],
+
   statusTimestamps: {
     confirmedAt: Date,
     packedAt: Date,
@@ -69,10 +74,15 @@ const orderSchema = new mongoose.Schema({
     type: { type: String },
     amt: { type: String },
   },
+  // orderType: {
+  //   type: String,
+  //   enum: ["Regular ", "Express"],
+  //   default: "Regular",
+  // },
   status: {
     type: String,
     enum: [
-      // "prewave",
+      "prewave",
       "pending",
       "packing",
       "packed",
@@ -85,7 +95,7 @@ const orderSchema = new mongoose.Schema({
     default: "pending",
   },
   payment: {
-    method: { type: String, enum: ["COD", "Online"], default: "COD" },
+    method: { type: String, enum: ["COD", "Online", "Cash"], default: "COD" },
     status: {
       type: String,
       enum: ["pending", "paid", "failed"],

@@ -19,5 +19,6 @@ export const orderRoutes = async (fastify, options) => {
   fastify.post("/order", createOrder);
   fastify.get("/order", getOrder);
   fastify.get("/order/:orderId", getOrderById);
+  
   // Register route in Fastify
 };
