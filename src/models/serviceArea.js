@@ -1,44 +1,5 @@
 import mongoose from "mongoose";
 
-const deliveryFeesSlabSchema = new mongoose.Schema(
-  {
-    name: { type: String, required: true },
-    minCartValue: { type: Number, required: true, min: 0 },
-    charges: { type: Number, required: true, min: 0 },
-  },
-  { _id: false }
-);
-
-const slotSchema = new mongoose.Schema(
-  {
-    label: { type: String, required: true },
-    startTime: {
-      type: String,
-      required: true,
-      validate: {
-        validator: function (v) {
-          return /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(v);
-        },
-        message: "Time should be in HH:MM format",
-      },
-    },
-    endTime: {
-      type: String,
-      required: true,
-      validate: {
-        validator: function (v) {
-          return /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(v);
-        },
-        message: "Time should be in HH:MM format",
-      },
-    },
-    orderLimit: { type: Number, required: true, min: 0 },
-    // slotTime: { type: String, required: true },
-    type: { type: String, enum: ["Regular", "Express"], required: true },
-  },
-  { _id: false }
-);
-
 const ServiceAreaSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
@@ -63,8 +24,14 @@ const ServiceAreaSchema = new mongoose.Schema(
       default: 30,
       min: 0,
     },
-    deliveryFeesSlab: [deliveryFeesSlabSchema],
-    slots: [slotSchema],
+
+    slots: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Slots",
+        required: true,
+      },
+    ],
     branches: [
       {
         type: mongoose.Schema.Types.ObjectId,

@@ -40,6 +40,7 @@ export const admin = new AdminJS({
     { resource: Models.Subcategory },
     { resource: Models.Counter },
     { resource: Models.ServiceArea },
+    { resource: Models.Slots },
     { resource: Models.ServiceFees },
     { resource: Models.Seller },
     { resource: Models.Offer },

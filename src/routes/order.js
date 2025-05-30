@@ -14,7 +14,7 @@ import { verifyToken } from "../middleware/verifyToken.js";
 
 export const orderRoutes = async (fastify, options) => {
   // Apply `verifyToken` to all routes in this file
-  fastify.addHook("preHandler", verifyToken);
+  // fastify.addHook("preHandler", verifyToken);
 
   fastify.post("/order", createOrder);
   fastify.get("/order", getOrder);

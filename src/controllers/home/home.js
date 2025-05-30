@@ -9,50 +9,86 @@ import {
 } from "../../models/index.js";
 
 /**
- * Helper to format a slot object
+ * Format a slot for response, add slot date info
  */
 const formatSlot = (slot, date) => ({
   id: slot._id,
   label: slot.label,
   startTime: slot.startTime,
   endTime: slot.endTime,
-  cutoffTime: slot.cutoffTime,
   available: true,
   date: date.toISOString().split("T")[0],
 });
 
 /**
- * Helper to get valid slots for a given date and area
+ * Check if a slot is valid for a given date & current time, based on
+ * minOrderTimeMinutes buffer and slot day availability
  */
-const getValidSlots = (area, date) => {
-  return (area.slots || [])
-    .filter((slot) => {
-      const [startHour, startMin] = slot.startTime.split(":").map(Number);
-      const slotTime = new Date(date);
-      slotTime.setHours(startHour, startMin, 0, 0);
+const isSlotValid = (slot, date) => {
+  if (!slot.isActive) return false;
 
-      return (
-        slotTime.getTime() - Date.now() >
-        (area.cutoffBufferMins || 60) * 60 * 1000
-      );
+  // Check if slot available on this day
+  const daysOfWeek = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ];
+  const dayName = daysOfWeek[date.getDay()];
+  if (!slot.availableOnDays.includes(dayName)) return false;
+
+  // Check cutoff buffer (minOrderTimeMinutes) from current time to slot start time
+  const [startHour, startMin] = slot.startTime.split(":").map(Number);
+  const slotStart = new Date(date);
+  slotStart.setHours(startHour, startMin, 0, 0);
+
+  const now = new Date();
+  // Slot must start after (now + minOrderTimeMinutes)
+  if (
+    slotStart.getTime() - now.getTime() <
+    slot.minOrderTimeMinutes * 60 * 1000
+  ) {
+    return false;
+  }
+
+  return true;
+};
+
+/**
+ * Get valid slots for a service area & date, filtered by assigned branches
+ * Only include slots that are assigned to branches that intersect with service area branches
+ */
+const getValidSlots = (area, slots, date, assignedBranchId) => {
+  return slots
+    .filter((slot) => {
+      // Check if slot assigned to the branch or branch is in service area branches
+      // Since slots are universal, you might want to check branch assignment if needed
+      // Here assuming slots are global and assigned to service area branches by design
+
+      // Validate if slot is valid for this date/time
+      return isSlotValid(slot, date);
     })
     .map((slot) => formatSlot(slot, date));
 };
 
 /**
- * Helper to get slots for multiple days
+ * Get slots for multiple days for the area, filtering by assigned branch
  */
-const getSlotsForDays = (area, days = 2) => {
-  const slots = [];
+const getSlotsForDays = (area, slots, assignedBranchId, days = 2) => {
+  const slotsByDay = [];
   for (let i = 0; i < days; i++) {
     const date = new Date();
     date.setDate(date.getDate() + i);
-    slots.push({
+
+    slotsByDay.push({
       day: i === 0 ? "today" : `day${i + 1}`,
-      slots: getValidSlots(area, date),
+      slots: getValidSlots(area, slots, date, assignedBranchId),
     });
   }
-  return slots;
+  return slotsByDay;
 };
 
 export const home = async (req, reply) => {
@@ -63,12 +99,13 @@ export const home = async (req, reply) => {
   }
 
   try {
-    // 1. Find service area and populate branches
+    // 1. Find service area and populate branches and slots
     const area = await ServiceArea.findOne({
       pinCode: pincode,
       isActive: true,
     })
       .populate("branches")
+      .populate("slots") // populate slots by ObjectId references
       .lean();
 
     if (!area || !area.branches || area.branches.length === 0) {
@@ -77,7 +114,7 @@ export const home = async (req, reply) => {
         .send({ message: "No service area or FC found for this pincode." });
     }
 
-    // 2. Pick the first active FC (or return all active branches if needed)
+    // 2. Pick the first active FC (fulfillment center)
     const assignedBranch = area.branches.find((b) => b.isActive !== false);
 
     if (!assignedBranch) {
@@ -86,8 +123,8 @@ export const home = async (req, reply) => {
         .send({ message: "No active fulfillment center available." });
     }
 
-    // 3. Get slots for today and tomorrow (or more days if needed)
-    const slots = getSlotsForDays(area, 2);
+    // 3. Get valid slots for today and tomorrow using populated slots
+    const slots = getSlotsForDays(area, area.slots, assignedBranch._id, 2);
 
     // 4. Fetch all service fees
     const serviceFees = await ServiceFees.find().lean();

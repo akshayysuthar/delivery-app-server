@@ -9,29 +9,23 @@ export const createOrder = async (req, reply) => {
     const {
       userId,
       items,
-      branch,
       totalPrice,
       slot,
       savings,
-      handlingFee,
-      deliveryFee,
+      handlingCharge,
+      deliveryCharge,
       discount,
+      couponCode,
     } = req.body;
 
     console.log("📦 Incoming Order Request:", req.body);
 
     const customerData = await Customer.findById(userId);
-    const branchData = await Branch.findById(branch);
 
     if (!customerData) {
       return reply.status(404).send({ message: "Customer not found" });
     }
 
-    if (!branchData) {
-      return reply.status(404).send({ message: "Branch not found" });
-    }
-
-    // Use address fields from customerData.address
     const address = customerData.address || {};
     const deliveryLocation = {
       latitude: address.location?.latitude || 0,
@@ -45,32 +39,44 @@ export const createOrder = async (req, reply) => {
       country: address.country || "",
     };
 
+    // 1. Collect all unique branch IDs from items
+    const uniqueBranchIds = [
+      ...new Set(items.map((item) => item.item.branch.toString())),
+    ];
+
+    // 2. Fetch all branch details in one query
+    const branches = await Branch.find({ _id: { $in: uniqueBranchIds } });
+
+    // 3. Build pickupLocations per branch
+    const pickupLocations = branches.map((branch) => ({
+      branch: branch._id,
+      latitude: branch.location.latitude,
+      longitude: branch.location.longitude,
+      address:
+        branch.address || "No address available! You can contact support team",
+    }));
+
     const newOrder = new Order({
       customer: userId,
-      branch,
       slot,
-      handlingFee,
-      deliveryFee,
+      handlingFee: handlingCharge,
+      deliveryFee: deliveryCharge,
       savings,
-      discount: req.body.discount, // ✅ Ensure this is included
+      discount,
+      couponCode,
       totalPrice,
       items: items.map((item) => ({
-        product: item.item.product, // ✅ Main Product ID
-        variantId: item.item.variantId, // ✅ Variant ID
+        product: item.item.product,
+        variantId: item.item.variantId,
+        branch: item.item.branch,
         name: item.item.name,
         image: item.item.image,
         count: item.count,
         price: item.item.price,
-        itemTotal: item.count * item.item.price,
+        itemTotal: item.item.price * item.count,
       })),
       deliveryLocation,
-      pickupLocation: {
-        latitude: branchData.location.latitude,
-        longitude: branchData.location.longitude,
-        address:
-          branchData.address ||
-          "No address available! You can contact support team",
-      },
+      pickupLocations,
     });
 
     const savedOrder = await newOrder.save();
@@ -450,6 +456,72 @@ function setStatusTimestamp(order, status) {
   }
 }
 // ===============================================================
+
+export const updateItemPackingStatus = async (req, reply) => {
+  const { orderId, itemId } = req.params; // orderId and itemId from URL
+  const { branchId, newStatus } = req.body; // branchId and newStatus in body (newStatus is 'packing' or 'packed')
+
+  if (!["packing", "packed"].includes(newStatus)) {
+    return reply.status(400).send({ message: "Invalid status" });
+  }
+
+  try {
+    const order = await Order.findById(orderId);
+    if (!order) {
+      return reply.status(404).send({ message: "Order not found" });
+    }
+
+    // Find the item in the order matching itemId and branchId
+    const item = order.items.id(itemId);
+    if (!item) {
+      return reply.status(404).send({ message: "Item not found in order" });
+    }
+
+    if (item.branch.toString() !== branchId) {
+      return reply
+        .status(403)
+        .send({ message: "Cannot update item of other branch" });
+    }
+
+    // Update item status
+    item.status = newStatus;
+    await order.save();
+
+    // Check if all items for this branch are packed
+    const branchItems = order.items.filter(
+      (i) => i.branch.toString() === branchId
+    );
+    const allBranchPacked = branchItems.every((i) => i.status === "packed");
+
+    // If branch packed all items, check if all branches packed all items
+    let message = "";
+    if (allBranchPacked) {
+      const allItemsPacked = order.items.every((i) => i.status === "packed");
+      if (allItemsPacked) {
+        // Update order status to packed (or ready)
+        order.status = "packed";
+        order.statusTimestamps.packedAt = new Date();
+        await order.save();
+        message =
+          "All items packed across all branches. Order status updated to packed.";
+      } else {
+        message =
+          "All items packed for your branch. Waiting for other branches.";
+      }
+    } else {
+      message =
+        "Item status updated. Some items still pending packing in your branch.";
+    }
+
+    return reply.send({ message, order });
+  } catch (error) {
+    console.error("Error updating packing status:", error);
+    return reply
+      .status(500)
+      .send({ message: "Failed to update packing status", error });
+  }
+};
+
 export const getPendingOrdersForBranch = async (req, reply) => {
   const { branchId } = req.params;
   try {
@@ -460,16 +532,32 @@ export const getPendingOrdersForBranch = async (req, reply) => {
       "packed",
       "ready",
     ];
+
+    // Fetch orders that contain items from this branch and are in relevant statuses
     const orders = await Order.find({
-      branch: branchId,
       status: { $in: pendingStatuses },
+      "items.branch": branchId,
     })
-      .populate("customer", "name phone email")
+      .populate("customer", "name  address.area address.pinCode")
       .populate("deliveryPartner", "name phone")
-      .select("customer slot status createdAt totalPrice items") // Only select needed fields
+      .populate("items.product", "name image")
+      .select(
+        "customer slot orderId status createdAt totalPrice items pickupLocations"
+      )
       .sort({ createdAt: -1 });
 
-    return reply.send(orders);
+    // Filter items to only those belonging to this branch
+    const filteredOrders = orders.map((order) => {
+      const filteredItems = order.items.filter(
+        (item) => item.branch.toString() === branchId
+      );
+      return {
+        ...order.toObject(),
+        items: filteredItems,
+      };
+    });
+
+    return reply.send(filteredOrders);
   } catch (error) {
     console.error("Fetch pending orders for branch failed:", error);
     return reply
@@ -477,15 +565,17 @@ export const getPendingOrdersForBranch = async (req, reply) => {
       .send({ message: "Failed to fetch pending orders", error });
   }
 };
+
 export const getOrderByIdFC = async (req, reply) => {
   try {
     const { orderId } = req.params;
 
     const order = await Order.findById(orderId)
       .populate("customer")
-      .populate("branch")
+      .populate("deliveryPartner")
       .populate("items.product")
-      .populate("deliveryPartner");
+      .populate("items.branch")
+      .populate("pickupLocations.branch");
 
     if (!order) {
       return reply.status(404).send({ message: "Order not found" });
@@ -497,65 +587,115 @@ export const getOrderByIdFC = async (req, reply) => {
     return reply.status(500).send({ message: "Failed to get order", error });
   }
 };
+
 export const updateOrderStatusByFC = async (req, reply) => {
   try {
     const { orderId } = req.params;
-    const { status } = req.body;
+    const { status, itemIndex } = req.body;
 
-    // Only allow FC to set these statuses
-    const allowedStatuses = ["packing", "packed", "ready", "cancelled"];
-    if (!allowedStatuses.includes(status)) {
-      return reply.status(400).send({ message: "Invalid status update" });
-    }
+    // Only allow valid item-level statuses
+    const allowedItemStatuses = ["packing", "packed", "cancelled"];
+    const allowedOrderStatuses = ["ready"];
 
     const order = await Order.findById(orderId);
     if (!order) return reply.status(404).send({ message: "Order not found" });
 
-    // Prevent overwriting final statuses
     if (["cancelled", "delivered"].includes(order.status)) {
       return reply
         .status(400)
         .send({ message: "Cannot modify completed order" });
     }
 
-    order.status = status;
-    setStatusTimestamp(order, status);
+    if (status === "ready") {
+      // Handle full order ready update
+      const allPacked = order.items.every((item) => item.status === "packed");
+      if (!allPacked) {
+        return reply.status(400).send({
+          message: "All items must be packed before setting order to ready",
+        });
+      }
+      order.status = "ready";
+      order.statusTimestamps ??= {};
+      order.statusTimestamps.readyAt = new Date();
+    } else {
+      // Validate item status
+      if (!allowedItemStatuses.includes(status)) {
+        return reply
+          .status(400)
+          .send({ message: "Invalid item status update" });
+      }
+
+      // Validate itemIndex
+      if (
+        typeof itemIndex !== "number" ||
+        itemIndex < 0 ||
+        itemIndex >= order.items.length
+      ) {
+        return reply.status(400).send({ message: "Invalid item index" });
+      }
+
+      // Update item status
+      order.items[itemIndex].status = status;
+
+      // Handle confirmedAt timestamp if first packing action
+      if (
+        status === "packing" &&
+        !order.statusTimestamps?.confirmedAt &&
+        !order.items.some(
+          (item, i) =>
+            i !== itemIndex && ["packing", "packed"].includes(item.status)
+        )
+      ) {
+        order.statusTimestamps ??= {};
+        order.statusTimestamps.confirmedAt = new Date();
+      }
+
+      // If all items are packed, update order status and packedAt
+      const allPacked = order.items.every((item) => item.status === "packed");
+      if (allPacked) {
+        order.status = "packed";
+        order.statusTimestamps ??= {};
+        order.statusTimestamps.packedAt = new Date();
+      }
+    }
+
     await order.save();
 
-    // Optional: notify via socket.io if needed
-    if (req.server?.io) {
-      req.server.io.to(orderId).emit("FCOrderUpdate", order);
-    }
+    req.server?.io?.to(orderId).emit("FCOrderUpdate", order);
 
     return reply.send({ message: "Order status updated", order });
   } catch (error) {
-    console.error("FC Order status update error:", error, error?.stack);
+    console.error("FC Order status update error:", error);
     return reply.status(500).send({
       message: "Failed to update order",
       error: error.message || error,
     });
   }
 };
+
 export const getAvailableOrdersForDelivery = async (req, reply) => {
   try {
-    const deliveryPartnerId = req.body.userId; // from auth middleware
+    // const deliveryPartnerId = req.body.userId;
 
-    // Fetch orders that are ready, assigned to this delivery partner, or delivered by this partner
+    const deliveryPartnerId = req.query.userId;
+    if (!deliveryPartnerId)
+      return reply.code(400).send({ error: "User ID missing" });
+
     const orders = await Order.find({
       $or: [
-        { status: "ready" }, // available to all
+        { status: "ready" },
         {
           status: { $in: ["assigned", "delivered"] },
-          deliveryPartner: deliveryPartnerId,
+          // deliveryPartner: deliveryPartnerId,
         },
       ],
     })
-      .populate("customer", "name phone address")
-      .populate("branch", "name address")
-      .populate("items.product")
+      .populate("customer", "name phone, address")
+      .populate("items.product orderId")
+      .populate("items.branch")
+      .populate("pickupLocations.branch")
       .sort({ createdAt: -1 });
 
-    // Split into available, assigned, and delivered arrays
     const available = orders.filter((order) => order.status === "ready");
     const assigned = orders.filter((order) => order.status === "assigned");
     const delivered = orders.filter((order) => order.status === "delivered");
@@ -624,21 +764,22 @@ export const updateOrderStatusByDeliveryPartner = async (req, reply) => {
     });
   }
 };
-
 // GET orders assigned to this delivery partner and not yet delivered
 export const getAssignedPendingOrdersForDeliveryPartner = async (
   req,
   reply
 ) => {
   try {
-    const deliveryPartnerId = req.body.userId; // assuming this is passed from middleware
+    const deliveryPartnerId = req.body.userId;
 
     const orders = await Order.find({
       deliveryPartner: deliveryPartnerId,
-      status: { $ne: "delivered" }, // not delivered yet
+      status: { $ne: "delivered" },
     })
       .populate("customer")
-      .populate("branch")
+      .populate("items.product")
+      .populate("items.branch")
+      .populate("pickupLocations.branch")
       .sort({ createdAt: -1 });
 
     reply.send(orders);

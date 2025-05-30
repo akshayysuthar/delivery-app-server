@@ -6,6 +6,7 @@ import {
   getAvailableOrdersForDelivery,
   getOrderByIdFC,
   getPendingOrdersForBranch,
+  updateItemPackingStatus,
   updateOrderStatusByDeliveryPartner,
   updateOrderStatusByFC,
 } from "../controllers/order/order.js";
@@ -23,7 +24,11 @@ export const adminRoutes = async (fastify, options) => {
   fastify.patch("/orders/branch/:orderId/status", updateOrderStatusByFC);
 
   // delivery route
-  fastify.post("/orders/delivery/available", getAvailableOrdersForDelivery);
+  fastify.get("/orders/delivery/available", getAvailableOrdersForDelivery);
+  fastify.patch(
+    "/orders/:orderId/items/:itemId/packing-status",
+    updateItemPackingStatus
+  );
   fastify.post("/orders/delivery/:orderId/confirm", comfirmOrder);
   fastify.patch(
     "/orders/delivery/:orderId/status",

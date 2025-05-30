@@ -15,11 +15,6 @@ const orderSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: "DeliveryPartner",
   },
-  branch: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Branch",
-    required: true,
-  },
   items: [
     {
       product: {
@@ -31,11 +26,21 @@ const orderSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         required: true,
       },
+      branch: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Branch",
+        required: true,
+      },
       name: String,
       image: String,
       count: { type: Number, required: true },
       price: { type: Number, required: true },
       itemTotal: { type: Number, required: true },
+      status: {
+        type: String,
+        enum: ["prewave", "pending", "packing", "packed", "ready"],
+        default: "pending",
+      },
     },
   ],
 
@@ -53,11 +58,19 @@ const orderSchema = new mongoose.Schema({
   deliveryAddress: {
     address: { type: String },
   },
-  pickupLocation: {
-    latitude: { type: Number, required: true },
-    longitude: { type: Number, required: true },
-    address: { type: String, required: true },
-  },
+  pickupLocations: [
+    {
+      branch: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Branch",
+        required: true,
+      },
+      latitude: { type: Number, required: true },
+      longitude: { type: Number, required: true },
+      address: { type: String, required: true },
+    },
+  ],
+
   slot: {
     id: String,
     label: String,

@@ -20,11 +20,13 @@ import CustomerSuggestion from "./customersuggestion.js";
 import Subcategory from "./subcatgories.js";
 import { Address } from "./address.js";
 import FeaturedSection from "./featuredSection.js";
+import Slots from "./slot.js";
 
 export {
   Order,
   Address,
   Admin,
+  Slots,
   Picker,
   BranchAdmin,
   FeaturedSection,

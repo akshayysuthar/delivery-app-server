@@ -6,7 +6,7 @@ const variantSchema = new mongoose.Schema({
   quantity: { type: String, required: true }, // e.g., "1L", "500g"
   stock: { type: Number, default: 0 },
   available: { type: Boolean, default: true },
-  sku: { type: String, required: true, unique: true }, // Unique identifier for variant
+  sku: { type: String, unique: true }, // Unique identifier for variant
 });
 
 const productSchema = new mongoose.Schema({
