@@ -116,8 +116,8 @@ const orderSchema = new mongoose.Schema({
     },
   },
 
-  deliveryFee: { type: Number },
-  handlingFee: { type: Number },
+  deliveryCharge: { type: Number },
+  handlingCharge: { type: Number },
   savings: { type: Number },
   totalPrice: { type: Number, required: true },
   createdAt: { type: Date, default: Date.now },

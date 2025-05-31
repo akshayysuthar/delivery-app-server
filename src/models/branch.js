@@ -32,30 +32,6 @@ const branchSchema = new mongoose.Schema(
     type: { type: String, enum: ["Owned", "Partnered"], required: true },
     code: { type: String, unique: true, required: true },
 
-    // location: {
-    //   type: {
-    //     type: String,
-    //     enum: ["Point"],
-    //     default: "Point",
-    //   },
-
-    //   coordinates: {
-    //     type: [Number],
-    //     required: true,
-    //     validate: {
-    //       validator: function (v) {
-    //         return (
-    //           v.length === 2 &&
-    //           v[0] >= -180 &&
-    //           v[0] <= 180 &&
-    //           v[1] >= -90 &&
-    //           v[1] <= 90
-    //         );
-    //       },
-    //       message: "Invalid coordinates",
-    //     },
-    //   },
-    // },
 
     location: {
       latitude: { type: Number, required: true },

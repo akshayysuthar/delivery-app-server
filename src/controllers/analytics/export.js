@@ -33,75 +33,138 @@ export async function exportAnalytics(request, reply) {
 
     const rawOrders = await Order.find(matchStage)
       .populate("customer", "name phone")
-      .populate("branch", "name")
+      .populate("items.branch", "name code")
+      .populate("pickupLocations.branch", "name code ")
       .select(
-        "orderId createdAt totalPrice payment.method payment.status deliveryFee handlingFee savings status deliveryLocation deliveryAddress pickupLocation discount statusTimestamps slot"
+        "orderId createdAt totalPrice payment.method payment.status deliveryCharge handlingCharge savings status deliveryLocation deliveryAddress pickupLocations discount statusTimestamps slot items"
       )
       .lean();
 
-    const orderRows = rawOrders.map((order) => ({
+    const slotRows = rawOrders.map((order) => ({
       orderId: order.orderId,
-      customerName: order.customer?.name || "N/A",
-      customerPhone: order.customer?.phone || "N/A",
-      branch: order.branch?.name || "N/A",
-
       slotId: order.slot?.id || "N/A",
       slotLabel: order.slot?.label || "N/A",
       slotStartTime: order.slot?.startTime || "N/A",
       slotEndTime: order.slot?.endTime || "N/A",
       slotDate: order.slot?.date || "N/A",
-
-      createdAt: new Date(order.createdAt).toLocaleString("en-IN", {
-        timeZone: "Asia/Kolkata",
-      }),
-
-      confirmedAt: order.statusTimestamps?.confirmedAt
-        ? new Date(order.statusTimestamps.confirmedAt).toLocaleString("en-IN", {
-            timeZone: "Asia/Kolkata",
-          })
-        : "N/A",
-      packedAt: order.statusTimestamps?.packedAt
-        ? new Date(order.statusTimestamps.packedAt).toLocaleString("en-IN", {
-            timeZone: "Asia/Kolkata",
-          })
-        : "N/A",
-      arrivingAt: order.statusTimestamps?.arrivingAt
-        ? new Date(order.statusTimestamps.arrivingAt).toLocaleString("en-IN", {
-            timeZone: "Asia/Kolkata",
-          })
-        : "N/A",
-      deliveredAt: order.statusTimestamps?.deliveredAt
-        ? new Date(order.statusTimestamps.deliveredAt).toLocaleString("en-IN", {
-            timeZone: "Asia/Kolkata",
-          })
-        : "N/A",
-      cancelledAt: order.statusTimestamps?.cancelledAt
-        ? new Date(order.statusTimestamps.cancelledAt).toLocaleString("en-IN", {
-            timeZone: "Asia/Kolkata",
-          })
-        : "N/A",
-
-      paymentMethod: order.payment?.method || "N/A",
-      paymentStatus: order.payment?.status || "N/A",
-
-      totalPrice: order.totalPrice || 0,
-      deliveryFee: order.deliveryFee || 0,
-      handlingFee: order.handlingFee || 0,
-      savings: order.savings || 0,
-
-      status: order.status || "N/A",
-
-      deliveryLatitude: order.deliveryLocation?.latitude || "N/A",
-      deliveryLongitude: order.deliveryLocation?.longitude || "N/A",
-      deliveryAddress: order.deliveryAddress?.address || "N/A",
-
-      pickupLatitude: order.pickupLocation?.latitude || "N/A",
-      pickupLongitude: order.pickupLocation?.longitude || "N/A",
-      pickupAddress: order.pickupLocation?.address || "N/A",
-
-      discountType: order.discount?.type || "N/A",
-      discountAmount: order.discount?.amt || "N/A",
     }));
+
+    const itemRows = [];
+    rawOrders.forEach((order) => {
+      order.items?.forEach((item) => {
+        itemRows.push({
+          orderId: order.orderId,
+          branchCode: item.branch?.code || "N/A",
+          productId: item.product?.toString() || "N/A",
+          productName: item.name || "N/A",
+          quantity: item.count || 0,
+          unit: item.unit || "N/A",
+          price: item.price || 0,
+          itemTotal: item.itemTotal || 0,
+        });
+      });
+    });
+
+    const pickupRows = [];
+    rawOrders.forEach((order) => {
+      order.pickupLocations?.forEach((pickup) => {
+        pickupRows.push({
+          orderId: order.orderId,
+          branchName: pickup.branch?.name || "N/A",
+          branchCode: pickup.branch?.code || "N/A",
+          latitude: pickup.latitude || "N/A",
+          longitude: pickup.longitude || "N/A",
+          address: pickup.address || "N/A",
+        });
+      });
+    });
+
+    const orderRows = rawOrders.map((order) => {
+      const pickup = order.pickupLocations?.[0] || {};
+
+      return {
+        orderId: order.orderId,
+        customerName: order.customer?.name || "N/A",
+        customerPhone: order.customer?.phone || "N/A",
+
+        // Multiple branches may be involved in items — we'll collect names
+        branchNames:
+          order.items
+            ?.map((item) => item.branch?.code)
+            .filter(Boolean)
+            .join(", ") || "N/A",
+
+        slotId: order.slot?.id || "N/A",
+        slotLabel: order.slot?.label || "N/A",
+        slotStartTime: order.slot?.startTime || "N/A",
+        slotEndTime: order.slot?.endTime || "N/A",
+        slotDate: order.slot?.date || "N/A",
+
+        createdAt: new Date(order.createdAt).toLocaleString("en-IN", {
+          timeZone: "Asia/Kolkata",
+        }),
+
+        confirmedAt: order.statusTimestamps?.confirmedAt
+          ? new Date(order.statusTimestamps.confirmedAt).toLocaleString(
+              "en-IN",
+              {
+                timeZone: "Asia/Kolkata",
+              }
+            )
+          : "N/A",
+        packedAt: order.statusTimestamps?.packedAt
+          ? new Date(order.statusTimestamps.packedAt).toLocaleString("en-IN", {
+              timeZone: "Asia/Kolkata",
+            })
+          : "N/A",
+        arrivingAt: order.statusTimestamps?.arrivingAt
+          ? new Date(order.statusTimestamps.arrivingAt).toLocaleString(
+              "en-IN",
+              {
+                timeZone: "Asia/Kolkata",
+              }
+            )
+          : "N/A",
+        deliveredAt: order.statusTimestamps?.deliveredAt
+          ? new Date(order.statusTimestamps.deliveredAt).toLocaleString(
+              "en-IN",
+              {
+                timeZone: "Asia/Kolkata",
+              }
+            )
+          : "N/A",
+        cancelledAt: order.statusTimestamps?.cancelledAt
+          ? new Date(order.statusTimestamps.cancelledAt).toLocaleString(
+              "en-IN",
+              {
+                timeZone: "Asia/Kolkata",
+              }
+            )
+          : "N/A",
+
+        paymentMethod: order.payment?.method || "N/A",
+        paymentStatus: order.payment?.status || "N/A",
+
+        totalPrice: order.totalPrice || 0,
+        deliveryFee: order.deliveryCharge || 0,
+        handlingFee: order.handlingCharge || 0,
+        savings: order.savings || 0,
+
+        status: order.status || "N/A",
+
+        deliveryLatitude: order.deliveryLocation?.latitude || "N/A",
+        deliveryLongitude: order.deliveryLocation?.longitude || "N/A",
+        deliveryAddress: order.deliveryAddress?.address || "N/A",
+
+        pickupLatitude: pickup.latitude || "N/A",
+        pickupLongitude: pickup.longitude || "N/A",
+        pickupAddress: pickup.address || "N/A",
+        pickupBranch: pickup.branch?.name || "N/A",
+
+        discountType: order.discount?.type || "N/A",
+        discountAmount: order.discount?.amt || "N/A",
+      };
+    });
 
     // Run all aggregations with this matchStage
     const [
@@ -296,6 +359,47 @@ export async function exportAnalytics(request, reply) {
       sheet.columns = headers.map((header) => ({ header, key: header }));
       sheet.addRows(rows);
     };
+
+    addSheet(
+      "Slot Details",
+      [
+        "orderId",
+        "slotId",
+        "slotLabel",
+        "slotStartTime",
+        "slotEndTime",
+        "slotDate",
+      ],
+      slotRows
+    );
+
+    addSheet(
+      "Order Items",
+      [
+        "orderId",
+        "branchCode",
+        "productId",
+        "productName",
+        "quantity",
+        "unit",
+        "price",
+        "itemTotal",
+      ],
+      itemRows
+    );
+
+    addSheet(
+      "Pickup Branches",
+      [
+        "orderId",
+        "branchName",
+        "branchCode",
+        "latitude",
+        "longitude",
+        "address",
+      ],
+      pickupRows
+    );
 
     addSheet(
       "Orders Data",

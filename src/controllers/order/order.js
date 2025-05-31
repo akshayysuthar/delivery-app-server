@@ -3,6 +3,7 @@
 import Order from "../../models/order.js";
 import Branch from "../../models/branch.js";
 import { Customer, DeliveryPartner } from "../../models/user.js";
+import mongoose from "mongoose";
 
 export const createOrder = async (req, reply) => {
   try {
@@ -59,8 +60,8 @@ export const createOrder = async (req, reply) => {
     const newOrder = new Order({
       customer: userId,
       slot,
-      handlingFee: handlingCharge,
-      deliveryFee: deliveryCharge,
+      handlingCharge,
+      deliveryCharge,
       savings,
       discount,
       couponCode,
@@ -200,17 +201,14 @@ export const updateOrderStatus = async (req, reply) => {
 
 export const getOrder = async (req, reply) => {
   try {
-    const { status, branchId } = req.query;
-    const { userId } = req.user;
+    const { userId } = req.query;
+    // const { userId } = req.user;
 
     let query = { customer: userId };
 
-    if (status) query.status = status;
-    if (branchId) query.branch = branchId;
-
     const orders = await Order.find(query)
       .populate("customer branch items.product deliveryPartner")
-      .sort({ createdAt: -1 });
+      .lean();
 
     return reply.send(orders);
   } catch (error) {
@@ -222,27 +220,26 @@ export const getOrder = async (req, reply) => {
 export const getOrderById = async (req, reply) => {
   try {
     const { orderId } = req.params;
-    const { userId } = req.user;
+    // const { userId } = req.user;
 
-    const order = await Order.findById(orderId).populate(
-      "customer branch items.product deliveryPartner"
-    );
+    const order = await Order.findById(orderId)
+      .populate([
+        { path: "customer", select: "name phone address" },
+        { path: "items.product", select: "name image" },
+        { path: "items.branch", select: "name address" },
+        { path: "deliveryPartner", select: "name phone" },
+      ])
+      .lean(); // allows modifying the result
 
     if (!order) {
       return reply.status(404).send({ message: "Order not found" });
     }
 
-    console.log("Order fetched:", order._id);
-    console.log("Order customer:", order.customer?._id?.toString());
-    console.log(
-      "Order deliveryPartner:",
-      order.deliveryPartner?._id?.toString()
-    );
-    console.log("Request userId:", userId);
-
+    // Optional auth check (uncomment if needed)
     // if (
-    //   order.customer.toString() !== userId &&
-    //   (!order.deliveryPartner || order.deliveryPartner.toString() !== userId)
+    //   order.customer?._id?.toString() !== userId &&
+    //   (!order.deliveryPartner ||
+    //     order.deliveryPartner._id?.toString() !== userId)
     // ) {
     //   return reply
     //     .status(403)
@@ -675,30 +672,43 @@ export const updateOrderStatusByFC = async (req, reply) => {
 
 export const getAvailableOrdersForDelivery = async (req, reply) => {
   try {
-    // const deliveryPartnerId = req.body.userId;
-
     const deliveryPartnerId = req.query.userId;
     if (!deliveryPartnerId)
       return reply.code(400).send({ error: "User ID missing" });
 
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
     const orders = await Order.find({
+      createdAt: { $gte: todayStart, $lte: todayEnd },
       $or: [
-        { status: "ready" },
+        { status: { $in: ["ready", "packed"] } }, // Show available to all
         {
-          status: { $in: ["assigned", "delivered"] },
-          // deliveryPartner: deliveryPartnerId,
+          status: { $in: ["assigned", "arriving", "delivered", "cancelled"] },
+          deliveryPartner: deliveryPartnerId, // Only assigned/cancelled/delivered to this partner
         },
       ],
     })
-      .populate("customer", "name phone, address")
+      .populate("customer", "name phone address")
       .populate("items.product orderId")
       .populate("items.branch")
-      .populate("pickupLocations.branch")
-      .sort({ createdAt: -1 });
+      .populate("pickupLocations.branch");
 
-    const available = orders.filter((order) => order.status === "ready");
-    const assigned = orders.filter((order) => order.status === "assigned");
-    const delivered = orders.filter((order) => order.status === "delivered");
+    // Grouping
+    const available = orders.filter(
+      (order) => order.status === "ready" || order.status === "packed"
+    );
+
+    const assigned = orders.filter(
+      (order) => order.status === "assigned" || order.status === "arriving"
+    );
+
+    const delivered = orders.filter(
+      (order) => order.status === "delivered" || order.status === "cancelled"
+    );
 
     return reply.send({ available, assigned, delivered });
   } catch (error) {
@@ -786,5 +796,29 @@ export const getAssignedPendingOrdersForDeliveryPartner = async (
   } catch (err) {
     console.error("Error fetching assigned pending orders:", err);
     reply.status(500).send({ message: "Server Error" });
+  }
+};
+
+export const getOrderByOrderId = async (request, reply) => {
+  try {
+    const { orderId } = request.params;
+
+    // Attempt to find by the custom "orderId" field (not the _id)
+    const order = await Order.findOne({ orderId });
+
+    if (!order) {
+      return reply.code(404).send({ error: "Order not found" });
+    }
+
+    return reply.send(order);
+  } catch (err) {
+    console.error("Error fetching order by orderId:", err);
+
+    // If headers are already sent, do nothing further
+    if (reply.sent) {
+      return;
+    }
+
+    return reply.code(500).send({ error: "Internal server error" });
   }
 };

@@ -1,4 +1,4 @@
-import { getAnalytics } from "../controllers/analytics/analytics.js";
+import { getAnalytics, getBranchAnalytics, getSellerAnalytics } from "../controllers/analytics/analytics.js";
 import { exportAnalytics } from "../controllers/analytics/export.js";
 import invoiceHandler from "../controllers/invoice/main.js";
 import {
@@ -37,4 +37,6 @@ export const adminRoutes = async (fastify, options) => {
   fastify.get("/order/:orderId/invoice", invoiceHandler);
   fastify.get("/analytics/analytics", getAnalytics);
   fastify.get("/analytics/export", exportAnalytics);
+  fastify.get("/analytics/branch/:branchId", getBranchAnalytics);
+  fastify.get("/analytics/seller/:sellerId", getSellerAnalytics);
 };

@@ -9,6 +9,7 @@ import {
   getAvailableOrdersForDeliveryPartner,
   acceptOrderByDeliveryPartner,
   getPendingOrdersForBranch,
+  getOrderByOrderId,
 } from "../controllers/order/order.js";
 import { verifyToken } from "../middleware/verifyToken.js";
 
@@ -17,8 +18,9 @@ export const orderRoutes = async (fastify, options) => {
   // fastify.addHook("preHandler", verifyToken);
 
   fastify.post("/order", createOrder);
-  fastify.get("/order", getOrder);
+  fastify.get("/customer/order", getOrder);
   fastify.get("/order/:orderId", getOrderById);
+  fastify.get('/orders/:orderId', getOrderByOrderId);
   
   // Register route in Fastify
 };
