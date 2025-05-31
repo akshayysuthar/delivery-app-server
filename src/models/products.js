@@ -1,5 +1,15 @@
 import mongoose from "mongoose";
 
+function slugify(text) {
+  if (!text) return '';
+  return text.toString().toLowerCase()
+    .replace(/\s+/g, '-')       // Replace spaces with -
+    .replace(/[^\w-]+/g, '')  // Remove all non-word chars except hyphen
+    .replace(/--+/g, '-')      // Replace multiple - with single -
+    .replace(/^-+/, '')         // Trim - from start of text
+    .replace(/-+$/, '');        // Trim - from end of text
+}
+
 const variantSchema = new mongoose.Schema({
   mrp: { type: Number, required: true },
   price: { type: Number, required: true },
@@ -53,48 +63,13 @@ productSchema.index({ "variants.sku": 1 });
 
 // Add pre-save middleware to update the updatedAt field
 productSchema.pre("save", function (next) {
+  // Update slug if name is modified or slug is not set
+  if (this.isModified('name') || !this.slug) {
+    this.slug = slugify(this.name);
+  }
   this.updatedAt = Date.now();
   next();
 });
 
 const Product = mongoose.model("Product", productSchema);
 export default Product;
-
-// v1
-
-// import mongoose from "mongoose";
-
-// const productSchema = new mongoose.Schema({
-//   name: { type: String, required: true },
-//   desc: { type: String },
-//   image: { type: String, required: true },
-//   mrp: { type: Number, required: true },
-//   price: { type: Number, required: true },
-//   quantity: { type: String, required: true }, // e.g., "1L", "500g"
-//   stock: { type: Number, default: 0 },
-//   available: { type: Boolean, default: true },
-//   tags: [String],
-//   category: {
-//     type: mongoose.Schema.Types.ObjectId,
-//     ref: "Category",
-//     required: true,
-//   },
-//   // subcategory: {
-//   //   type: mongoose.Schema.Types.ObjectId,
-//   //   ref: "Subcategory",
-//   //   required: true,
-//   // },
-//   branch: {
-//     type: mongoose.Schema.Types.ObjectId,
-//     ref: "Branch",
-//     required: true,
-//   },
-//   seller: {
-//     type: mongoose.Schema.Types.ObjectId,
-//     ref: "Seller",
-//     required: true,
-//   },
-// });
-
-// const Product = mongoose.model("Product", productSchema);
-// export default Product;

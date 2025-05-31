@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import bcrypt from 'bcrypt';
 
 // Base User Schema
 const userSchema = new mongoose.Schema(
@@ -26,6 +27,25 @@ const userSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+// Password Hashing and Comparison Functions
+async function hashPassword(next) {
+  if (!this.isModified('password') || !this.password) {
+    return next();
+  }
+  try {
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
+    return next();
+  } catch (error) {
+    return next(error);
+  }
+}
+
+function comparePassword(candidatePassword) {
+  if (!this.password) return Promise.resolve(false);
+  return bcrypt.compare(candidatePassword, this.password);
+}
 
 // Customer Schema
 const customerSchema = new mongoose.Schema(
@@ -56,10 +76,8 @@ const customerSchema = new mongoose.Schema(
       type: String,
       enum: ["all", "new", "existing"],
       default: "new",
-    }, // Added field
+    },
     address: {
-      // type: mongoose.Schema.Types.ObjectId,
-      // ref: "Address",
       houseNo: { type: String },
       streetAddress: { type: String },
       landmark: { type: String },
@@ -79,9 +97,11 @@ const customerSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+customerSchema.pre('save', hashPassword);
+customerSchema.methods.comparePassword = comparePassword;
+
 // Virtual to determine userType based on order count
 customerSchema.virtual("calculatedUserType").get(function () {
-  // Assume this.ordersCount is set/populated elsewhere
   if (typeof this.ordersCount === "number") {
     return this.ordersCount > 5 ? "existing" : "new";
   }
@@ -121,6 +141,9 @@ const deliveryPartnerSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+deliveryPartnerSchema.pre('save', hashPassword);
+deliveryPartnerSchema.methods.comparePassword = comparePassword;
+
 // Admin Schema
 const adminSchema = new mongoose.Schema(
   {
@@ -138,16 +161,19 @@ const adminSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ["Admin", "FcAdmin", "BranchAdmin"],
+      enum: ["Admin", "FcAdmin", "BranchAdmin"], // FcAdmin and BranchAdmin can also be general admins
       default: "Admin",
     },
-    branch: {
+    branch: { // Optional: Admin might not be tied to a specific branch
       type: mongoose.Schema.Types.ObjectId,
       ref: "Branch",
     },
   },
   { timestamps: true }
 );
+
+adminSchema.pre('save', hashPassword);
+adminSchema.methods.comparePassword = comparePassword;
 
 // Picker Schema
 const pickerSchema = new mongoose.Schema(
@@ -168,10 +194,14 @@ const pickerSchema = new mongoose.Schema(
     branch: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Branch",
+      required: true, // Picker should be associated with a branch
     },
   },
   { timestamps: true }
 );
+
+pickerSchema.pre('save', hashPassword);
+pickerSchema.methods.comparePassword = comparePassword;
 
 // Seller Schema
 const sellerSchema = new mongoose.Schema(
@@ -191,21 +221,25 @@ const sellerSchema = new mongoose.Schema(
     role: { type: String, enum: ["Seller"], default: "Seller" },
     gstin: { type: String },
     pan: { type: String },
-    address: {
+    address: { // Changed to match general address structure, if desired
       street: String,
       city: String,
       state: String,
       pinCode: String,
       country: String,
     },
-    isActive: { type: Boolean, default: true },
+    isActive: { type: Boolean, default: true }, // Renamed from isActivated for consistency if this is different
   },
   { timestamps: true }
 );
 
+sellerSchema.pre('save', hashPassword);
+sellerSchema.methods.comparePassword = comparePassword;
+
+// BranchAdmin Schema (Specific, if different from general Admin with BranchAdmin role)
 const branchAdminSchema = new mongoose.Schema(
   {
-    ...userSchema.obj,
+    ...userSchema.obj, // Ensure this doesn't conflict with adminSchema if they are distinct types
     email: { type: String, required: true, unique: true, lowercase: true },
     password: { type: String, required: true },
     phone: {
@@ -221,108 +255,21 @@ const branchAdminSchema = new mongoose.Schema(
     branch: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Branch",
+      required: true, // BranchAdmin must be associated with a branch
     },
   },
   { timestamps: true }
 );
 
+branchAdminSchema.pre('save', hashPassword);
+branchAdminSchema.methods.comparePassword = comparePassword;
+
 export const BranchAdmin =
   mongoose.models.BranchAdmin ||
   mongoose.model("BranchAdmin", branchAdminSchema);
 
-export const Customer = mongoose.model("Customer", customerSchema);
-export const DeliveryPartner = mongoose.model(
-  "DeliveryPartner",
-  deliveryPartnerSchema
-);
-export const Admin = mongoose.model("Admin", adminSchema);
-export const Picker = mongoose.model("Picker", pickerSchema);
-export const SellerUser = mongoose.model("SellerUser", sellerSchema);
-
-// v1
-// import mongoose from "mongoose";
-
-// // Base User Schema
-
-// const userSchema = new mongoose.Schema({
-//   name: { type: String },
-//   geneder: {
-//     type: String,
-//     enum: ["male", "female"],
-//   },
-
-//   role: {
-//     type: String,
-//     enum: ["Customer", "Admin", "DeliveryPartner", "Shopper", "FcAdmin"],
-//     require: true,
-//   },
-//   isActivated: { type: Boolean, default: false },
-// });
-
-// // Customer Schema
-
-// const customerSchema = new mongoose.Schema({
-//   ...userSchema.obj,
-//   email: { type: String, unique: true, sparse: true },
-//   password: { type: String },
-//   phone: { type: Number, required: true, unique: true },
-//   role: { type: String, enum: ["Customer"], default: "Customer" },
-//   onboardingStatus: {
-//     type: String,
-//     enum: ["pending", "complete"],
-//     default: "pending",
-//   },
-//   address: {
-//     name: { type: String }, // name of customer
-//     phone: { type: Number },
-//     houseNo: { type: String },
-//     streetAddress: { type: String },
-//     landmark: { type: String },
-//     city: { type: String },
-//     state: { type: String },
-//     pinCode: { type: String },
-//   },
-//   LiveLocation: {
-//     latitude: { type: Number },
-//     longitude: { type: Number },
-//   },
-// });
-
-// const DeliveryPartnerSchema = new mongoose.Schema({
-//   ...userSchema.obj,
-//   email: { type: String, required: true, unique: true },
-//   password: { type: String, required: true },
-//   phone: { type: Number, required: true, unique: true },
-//   role: { type: String, enum: ["DeliveryPartner"], default: "DeliveryPartner" },
-//   LiveLocation: {
-//     latitude: { type: Number },
-//     longitude: { type: Number },
-//   },
-//   address: { type: String },
-//   branch: {
-//     type: mongoose.Schema.Types.ObjectId,
-//     ref: "Branch",
-//   },
-// });
-
-// // admin schema
-
-// const adminSchema = new mongoose.Schema({
-//   ...userSchema.obj,
-//   email: { type: String, required: true, unique: true },
-//   password: { type: String, required: true },
-//   phone: { type: Number, required: true, unique: true },
-//   role: { type: String, enum: ["Admin"], default: "Admin" },
-//   branch: {
-//     type: mongoose.Schema.Types.ObjectId,
-//     ref: "Branch",
-//   },
-// });
-
-// export const Customer = mongoose.model("Customer", customerSchema);
-// export const DeliveryPartner = mongoose.model(
-//   "DeliveryPartner",
-//   DeliveryPartnerSchema
-// );
-// export const Admin = mongoose.model("Admin", adminSchema);
-// // export const Customer = mongoose.model("Customer", customerSchema);
+export const Customer = mongoose.models.Customer || mongoose.model("Customer", customerSchema);
+export const DeliveryPartner = mongoose.models.DeliveryPartner || mongoose.model("DeliveryPartner", deliveryPartnerSchema);
+export const Admin = mongoose.models.Admin || mongoose.model("Admin", adminSchema);
+export const Picker = mongoose.models.Picker || mongoose.model("Picker", pickerSchema);
+export const SellerUser = mongoose.models.SellerUser || mongoose.model("SellerUser", sellerSchema);

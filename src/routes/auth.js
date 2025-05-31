@@ -3,7 +3,6 @@ import {
   fetchAddressById,
   fetchUser,
   loginCustomer,
-  loginDeliveryPartner,
   loginFcUser,
   onboarding,
   refreshToken,

@@ -11,7 +11,7 @@ import {
   getProductsBySubcategoryId,
   getSuggestedProducts,
   searchProducts,
-} from "../controllers/product/porduct.js";
+} from "../controllers/product/product.js";
 
 export const categoryRoutes = async (fastify, options) => {
   fastify.get("/categories", getAllCategories);

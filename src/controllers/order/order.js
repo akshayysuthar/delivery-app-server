@@ -1,11 +1,33 @@
-// https://www.youtube.com/watch?v=ojBfRGvdci8&list=WL&index=4&t=1168s
-
+import mongoose from "mongoose";
 import Order from "../../models/order.js";
 import Branch from "../../models/branch.js";
 import { Customer, DeliveryPartner } from "../../models/user.js";
 
 export const createOrder = async (req, reply) => {
   try {
+    const requiredFields = ["userId", "items", "totalPrice", "slot", "deliveryCharge", "handlingCharge"];
+    for (const field of requiredFields) {
+      if (req.body[field] === undefined) {
+        return reply.status(400).send({ message: `Missing required field: ${field}` });
+      }
+    }
+    if (!Array.isArray(req.body.items) || req.body.items.length === 0) {
+      return reply.status(400).send({ message: "Items must be a non-empty array." });
+    }
+    if (!mongoose.Types.ObjectId.isValid(req.body.userId)) {
+      return reply.status(400).send({ message: "Invalid userId format." });
+    }
+    // Basic validation for item structure (can be expanded)
+    for (const item of req.body.items) {
+        if (!item.item || !item.item.product || !item.item.variantId || !item.item.branch || !item.item.name || !item.item.image || item.count === undefined || item.item.price === undefined) {
+            return reply.status(400).send({ message: "Invalid item structure in items array."});
+        }
+        if (!mongoose.Types.ObjectId.isValid(item.item.product) || !mongoose.Types.ObjectId.isValid(item.item.branch)) {
+             return reply.status(400).send({ message: "Invalid product or branch ID format in items array."});
+        }
+    }
+
+
     const {
       userId,
       items,
@@ -18,10 +40,7 @@ export const createOrder = async (req, reply) => {
       couponCode,
     } = req.body;
 
-    console.log("📦 Incoming Order Request:", req.body);
-
     const customerData = await Customer.findById(userId);
-
     if (!customerData) {
       return reply.status(404).send({ message: "Customer not found" });
     }
@@ -39,21 +58,13 @@ export const createOrder = async (req, reply) => {
       country: address.country || "",
     };
 
-    // 1. Collect all unique branch IDs from items
-    const uniqueBranchIds = [
-      ...new Set(items.map((item) => item.item.branch.toString())),
-    ];
-
-    // 2. Fetch all branch details in one query
+    const uniqueBranchIds = [...new Set(items.map((item) => item.item.branch.toString()))];
     const branches = await Branch.find({ _id: { $in: uniqueBranchIds } });
-
-    // 3. Build pickupLocations per branch
     const pickupLocations = branches.map((branch) => ({
       branch: branch._id,
       latitude: branch.location.latitude,
       longitude: branch.location.longitude,
-      address:
-        branch.address || "No address available! You can contact support team",
+      address: branch.address || "No address available! You can contact support team",
     }));
 
     const newOrder = new Order({
@@ -82,18 +93,24 @@ export const createOrder = async (req, reply) => {
     const savedOrder = await newOrder.save();
     return reply.status(201).send(savedOrder);
   } catch (error) {
-    console.error("❌ Error in createOrder:", error);
-    return reply.status(500).send({ message: "Failed to create order", error });
+    console.error("Error in createOrder:", error.message, error.stack);
+    return reply.status(500).send({ message: "An internal error occurred. Please try again later." });
   }
 };
 
-export const comfirmOrder = async (req, reply) => {
+// Renamed from comfirmOrder to confirmOrder
+export const confirmOrder = async (req, reply) => {
   try {
     const { orderId } = req.params;
-    const { deliveryPersonLocation, userId } = req.body;
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return reply.status(400).send({ message: "Invalid orderId format." });
+    }
+
+    const { deliveryPersonLocation } = req.body; // userId removed from body
+    const userId = req.user?.userId; // userId from token
 
     if (!userId) {
-      return reply.status(400).send({ message: "userId is required in body" });
+      return reply.status(401).send({ message: "Unauthorized: User ID not found in token." });
     }
 
     const deliveryPerson = await DeliveryPartner.findById(userId);
@@ -103,192 +120,174 @@ export const comfirmOrder = async (req, reply) => {
     const order = await Order.findById(orderId);
     if (!order) return reply.status(404).send({ message: "Order not found" });
 
-    if (order.status !== "ready") {
-      return reply.status(400).send({ message: "Order is not available" });
+    if (order.status !== "ready") { // Assuming "ready" is the status before confirmation
+      return reply.status(400).send({ message: "Order is not available for confirmation" });
     }
 
     order.deliveryPartner = userId;
-    // Optionally update status to "assigned"
-    order.status = "assigned";
+    order.status = "assigned"; // Status after confirmation
     if (!order.statusTimestamps) order.statusTimestamps = {};
     order.statusTimestamps.assignedAt = new Date();
+    // Add deliveryPersonLocation if it's part of your schema and logic
+    // order.deliveryPersonLastLocation = deliveryPersonLocation;
 
     await order.save();
 
     if (req.server?.io) {
-      req.server.io.to(orderId).emit("orderConfirmed", order);
+      req.server.io.to(orderId).emit("orderConfirmed", order); // Event name updated
     }
 
     return reply.send(order);
   } catch (error) {
-    console.error("Confirm order error:", error, error?.stack);
-    return reply.status(500).send({
-      message: "Failed to comfirm order",
-      error: error.message || error,
-    });
+    console.error("Error in confirmOrder:", error.message, error.stack); // Function name updated
+    return reply.status(500).send({ message: "An internal error occurred. Please try again later." });
   }
 };
 
+// The detailed updateOrderStatus function (previously commented out)
 export const updateOrderStatus = async (req, reply) => {
   try {
     const { orderId } = req.params;
-    const { status } = req.body;
-
-    const allowedStatuses = [
-      "available",
-      "processing",
-      "dispatched",
-      "delivered",
-      "cancelled",
-    ];
-    if (!allowedStatuses.includes(status)) {
-      return reply.status(400).send({ message: "Invalid status" });
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return reply.status(400).send({ message: "Invalid orderId format." });
     }
 
-    const order = await Order.findByIdAndUpdate(
-      orderId,
-      { status },
-      { new: true }
-    );
-    if (!order) {
-      return reply.status(404).send({ message: "Order not found" });
+    const { status, deliveryPersonLocation } = req.body;
+    const userId = req.user?.userId; // userId from token
+
+    if (!userId) {
+      return reply.status(401).send({ message: "Unauthorized: User ID not found in token." });
     }
 
-    return reply.send({ message: "Status updated", order });
+    // Validate status if necessary (e.g., using an enum or allowed list)
+    // const allowedStatuses = ["processing", "dispatched", "arriving", "delivered", "cancelled"];
+    // if (!allowedStatuses.includes(status)) {
+    //    return reply.status(400).send({ message: "Invalid status provided." });
+    // }
+
+    const deliveryPerson = await DeliveryPartner.findById(userId); // Or generic User model if other roles can update
+    if (!deliveryPerson) { // This check might be redundant if verifyToken ensures user exists
+      return reply.status(404).send({ message: "User (Delivery person) not found" });
+    }
+
+    const order = await Order.findById(orderId);
+    if (!order) return reply.status(404).send({ message: "Order not found" });
+
+    if (["cancelled", "delivered"].includes(order.status)) {
+      return reply.status(400).send({ message: "Order cannot be updated as it's already completed or cancelled." });
+    }
+
+    // Ensure only assigned delivery partner can update (or other roles if logic permits)
+    if (!order.deliveryPartner || order.deliveryPartner.toString() !== userId) {
+      return reply.status(403).send({ message: "Unauthorized to update this order's status." });
+    }
+
+    order.status = status;
+    if (deliveryPersonLocation) { // Only update if provided
+        // order.deliveryPersonLastLocation = deliveryPersonLocation; // Store location if schema supports
+    }
+
+    // Update appropriate timestamp
+    if (!order.statusTimestamps) order.statusTimestamps = {};
+    const timestampField = `${status}At`; // e.g. processingAt, deliveredAt
+    order.statusTimestamps[timestampField] = new Date();
+
+
+    await order.save();
+
+    if (req.server?.io) { // Notify clients if using WebSockets
+        req.server.io.to(orderId).emit("LiveTrackingUpdates", order); // Or a more generic "orderStatusUpdate"
+    }
+    return reply.send(order);
   } catch (error) {
-    console.error(error);
-    return reply
-      .status(500)
-      .send({ message: "Failed to update status", error });
+    console.error("Error in updateOrderStatus:", error.message, error.stack);
+    return reply.status(500).send({ message: "An internal error occurred. Please try again later." });
   }
 };
 
-// export const updateOrderStatus = async (req, reply) => {
-//   try {
-//     const { orderId } = req.params;
-//     const { status, deliveryPersonLocation } = req.body;
-//     const { userId } = req.body;
-
-//     const deliveryPerson = await DeliveryPartner.findById(userId);
-//     if (!deliveryPerson) {
-//       return reply.ststus(404).send({ message: "Delviery person not found" });
-//     }
-//     const order = await Order.findById(orderId);
-//     if (!order) return reply.status(404).send({ message: "Order not found" });
-
-//     if (["cancelled", "delivered"].includes(order.status)) {
-//       return reply.status(400).send({ message: "ORder cannot be updated " });
-//     }
-
-//     if (order.deliveryPartner.toString() !== userId) {
-//       return reply.status(403).send({ message: "Unauthorized" });
-//     }
-
-//     order.status = status;
-//     order.deliveryPersonLocation = deliveryPersonLocation;
-//     await order.save();
-
-//     req.server.io.to(orderId).emit("LiveTrackingUpdates", order);
-//     return reply.send(order);
-//   } catch (error) {
-//     console.log(error);
-//     return reply
-//       .status(500)
-//       .send({ message: "Failed to update order status", error });
-//   }
-// };
 
 export const getOrder = async (req, reply) => {
   try {
     const { status, branchId } = req.query;
-    const { userId } = req.user;
+    const { userId } = req.user; // Assuming userId is from JWT and represents the customer
 
     let query = { customer: userId };
 
     if (status) query.status = status;
-    if (branchId) query.branch = branchId;
+    // if (branchId) query.branch = branchId; // Customer orders are usually not filtered by branch directly
 
     const orders = await Order.find(query)
-      .populate("customer branch items.product deliveryPartner")
+      .populate("customer", "name phone email") // Populate specific fields
+      .populate("deliveryPartner", "name phone")
+      .populate("items.product", "name image price") // Populate fields from product
+      .populate("items.branch", "name") // Populate branch name for items
       .sort({ createdAt: -1 });
 
     return reply.send(orders);
   } catch (error) {
-    console.log("Get order error:", error);
-    return reply.status(500).send({ message: "Failed to get order", error });
+    console.error("Error in getOrder:", error.message, error.stack);
+    return reply.status(500).send({ message: "An internal error occurred. Please try again later." });
   }
 };
 
 export const getOrderById = async (req, reply) => {
   try {
     const { orderId } = req.params;
-    const { userId } = req.user;
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return reply.status(400).send({ message: "Invalid orderId format." });
+    }
+    const { userId } = req.user; // Assuming userId is from JWT
 
-    const order = await Order.findById(orderId).populate(
-      "customer branch items.product deliveryPartner"
-    );
+    const order = await Order.findById(orderId)
+      .populate("customer", "name phone email")
+      .populate("deliveryPartner", "name phone")
+      .populate("items.product") // Populate full product for details
+      .populate("items.branch", "name location"); // Populate branch details
 
     if (!order) {
       return reply.status(404).send({ message: "Order not found" });
     }
 
-    console.log("Order fetched:", order._id);
-    console.log("Order customer:", order.customer?._id?.toString());
-    console.log(
-      "Order deliveryPartner:",
-      order.deliveryPartner?._id?.toString()
-    );
-    console.log("Request userId:", userId);
+    const customerId = order.customer?._id?.toString() || order.customer?.toString();
+    const deliveryPartnerId = order.deliveryPartner?._id?.toString() || order.deliveryPartner?.toString();
 
-    // if (
-    //   order.customer.toString() !== userId &&
-    //   (!order.deliveryPartner || order.deliveryPartner.toString() !== userId)
-    // ) {
-    //   return reply
-    //     .status(403)
-    //     .send({ message: "Unauthorized access to this order" });
-    // }
+    // Allow access if user is the customer or the assigned delivery partner.
+    // Add other roles (e.g., admin) if they should also have access.
+    if (customerId !== userId && deliveryPartnerId !== userId) {
+      // TODO: Add admin role check here if admins should bypass this
+      // const userMakingRequest = await User.findById(userId); (assuming a generic User model or Admin model)
+      // if (userMakingRequest.role !== 'Admin') {
+      return reply.status(403).send({ message: "Unauthorized access to this order." });
+      // }
+    }
 
     return reply.send(order);
   } catch (error) {
-    console.error("Get order by ID error:", error);
-    return reply.status(500).send({ message: "Failed to get order", error });
+    console.error("Error in getOrderById:", error.message, error.stack);
+    return reply.status(500).send({ message: "An internal error occurred. Please try again later." });
   }
 };
 
+// getAllOrders remains largely unchanged in its core logic, only error handling.
 export async function getAllOrders(query = {}) {
   try {
     const { status, startDate, endDate, limit = 10, page = 1 } = query;
-
-    // Build query conditions
     let queryConditions = {};
-
-    // Add status filter if provided
-    if (status) {
-      queryConditions.status = status;
-    }
-
-    // Add date range filter if provided
+    if (status) queryConditions.status = status;
     if (startDate || endDate) {
       queryConditions.createdAt = {};
       if (startDate) queryConditions.createdAt.$gte = new Date(startDate);
       if (endDate) queryConditions.createdAt.$lte = new Date(endDate);
     }
-
-    // Calculate skip for pagination
     const skip = (page - 1) * limit;
-
     const orders = await Order.find(queryConditions)
       .populate("customer", "name phone email")
       .populate("deliveryPartner", "name phone")
-      .populate("branch", "name address")
-      .sort({ createdAt: -1 }) // Sort by newest first
+      .populate("items.branch", "name address") // Changed from 'branch' to 'items.branch'
+      .sort({ createdAt: -1 })
       .limit(parseInt(limit))
       .skip(skip);
-
-    // Get total count for pagination
     const totalOrders = await Order.countDocuments(queryConditions);
-
     return {
       orders,
       pagination: {
@@ -299,73 +298,127 @@ export async function getAllOrders(query = {}) {
       },
     };
   } catch (error) {
+    // This function is not a route handler, so it throws error for service layer handling
+    console.error("Error in getAllOrders service:", error.message, error.stack);
     throw new Error(`Failed to fetch orders: ${error.message}`);
   }
 }
 
+
 export const getOrdersForFC = async (req, reply) => {
   try {
-    const { _id, branch } = req.user;
+    const { _id, branch } = req.user; // Assuming branch is part of FC user token
     const { status } = req.query;
 
     if (!branch) {
-      return reply
-        .status(400)
-        .send({ message: "Branch ID missing in user token" });
+      return reply.status(400).send({ message: "Branch ID missing in user token for FC" });
+    }
+    if (!mongoose.Types.ObjectId.isValid(branch)) {
+        return reply.status(400).send({ message: "Invalid Branch ID format in token."});
     }
 
-    const query = { branch: branch };
-    if (status) query.status = status;
+    const queryConditions = { "items.branch": branch }; // Query by items.branch
+    if (status) queryConditions.status = status;
 
-    const orders = await Order.find(query)
+    const orders = await Order.find(queryConditions)
       .sort({ createdAt: -1 })
-      .populate("customer deliveryPartner");
+      .populate("customer", "name phone")
+      .populate("deliveryPartner", "name phone")
+      .populate("items.product", "name image");
 
-    return reply.send({ orders });
+    return reply.send({ orders }); // Consider consistent response { orders: orders }
   } catch (error) {
-    console.error("FC Orders fetch failed:", error);
-    return reply.status(500).send({ message: "Failed to fetch orders", error });
+    console.error("Error in getOrdersForFC:", error.message, error.stack);
+    return reply.status(500).send({ message: "An internal error occurred. Please try again later." });
   }
 };
 
 export const getOrdersForDeliveryPartner = async (req, reply) => {
   try {
-    const { userId } = req.user;
+    const { userId } = req.user; // userId from token
+    if (!mongoose.Types.ObjectId.isValid(userId)) { // Though token should ensure valid ID
+        return reply.status(400).send({ message: "Invalid Delivery Partner ID format."});
+    }
 
     const orders = await Order.find({ deliveryPartner: userId })
-      .populate("customer branch")
+      .populate("customer", "name phone address") // Populate more customer details if needed
+      .populate("items.branch", "name address location") // Branch details for items
+      .populate("pickupLocations.branch", "name address location") // Pickup branch details
       .sort({ createdAt: -1 });
 
     return reply.send(orders);
   } catch (error) {
-    console.error("Delivery orders fetch failed:", error);
-    return reply.status(500).send({ message: "Failed to fetch orders", error });
+    console.error("Error in getOrdersForDeliveryPartner:", error.message, error.stack);
+    return reply.status(500).send({ message: "An internal error occurred. Please try again later." });
   }
 };
 
-export const getAvailableOrdersForDeliveryPartner = async (req, reply) => {
+export const getAvailableOrdersForDelivery = async (req, reply) => {
   try {
-    const orders = await Order.find({
-      deliveryPartner: null,
-      status: "available",
+    // userId from token, not query
+    const deliveryPartnerId = req.user?.userId;
+    if (!deliveryPartnerId) {
+      return reply.status(401).send({ message: "Unauthorized: User ID not found in token." });
+    }
+     if (!mongoose.Types.ObjectId.isValid(deliveryPartnerId)) {
+        return reply.status(400).send({ message: "Invalid Delivery Partner ID format in token."});
+    }
+
+
+    // Fetch orders that are 'ready' and not yet assigned
+    const availableOrders = await Order.find({
+      status: "ready", // Assuming 'ready' means ready for pickup
+      deliveryPartner: null, // Not yet assigned
     })
-      .populate("customer branch")
+      .populate("customer", "name phone address")
+      .populate("items.product", "name image") // Simplified product info
+      .populate("items.branch", "name address")
+      .populate("pickupLocations.branch", "name address location")
       .sort({ createdAt: -1 });
 
-    return reply.send(orders);
-    // console.log({orders});
+    // Fetch orders assigned to this delivery partner that are not yet delivered
+    const assignedOrders = await Order.find({
+        deliveryPartner: deliveryPartnerId,
+        status: { $nin: ["delivered", "cancelled"] } // Exclude completed/cancelled
+    })
+      .populate("customer", "name phone address")
+      .populate("items.product", "name image")
+      .populate("items.branch", "name address")
+      .populate("pickupLocations.branch", "name address location")
+      .sort({ createdAt: -1 });
+
+    // Fetch orders delivered by this partner (optional, for history)
+    const deliveredOrders = await Order.find({
+        deliveryPartner: deliveryPartnerId,
+        status: "delivered"
+    })
+      .populate("customer", "name phone address")
+      .populate("items.product", "name image")
+      .populate("items.branch", "name address")
+      .populate("pickupLocations.branch", "name address location")
+      .sort({ createdAt: -1 }).limit(10); // Example: limit history
+
+
+    return reply.send({ available: availableOrders, assigned: assignedOrders, delivered: deliveredOrders });
   } catch (error) {
-    console.error("Fetch available orders failed:", error);
-    return reply
-      .status(500)
-      .send({ message: "Failed to fetch available orders", error });
+    console.error("Error in getAvailableOrdersForDelivery:", error.message, error.stack);
+    return reply.status(500).send({ message: "An internal error occurred. Please try again later." });
   }
 };
+
 
 export const acceptOrderByDeliveryPartner = async (req, reply) => {
   try {
-    const { userId } = req.user;
+    const { userId } = req.user; // userId from token
     const { orderId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return reply.status(400).send({ message: "Invalid orderId format." });
+    }
+    if (!mongoose.Types.ObjectId.isValid(userId)) { // Though token should ensure valid ID
+        return reply.status(400).send({ message: "Invalid Delivery Partner ID format in token."});
+    }
+
 
     const deliveryPartner = await DeliveryPartner.findById(userId);
     if (!deliveryPartner) {
@@ -378,91 +431,88 @@ export const acceptOrderByDeliveryPartner = async (req, reply) => {
     }
 
     if (order.deliveryPartner) {
-      return reply
-        .status(400)
-        .send({ message: "Order is already assigned to a delivery partner" });
+      return reply.status(400).send({ message: "Order is already assigned to a delivery partner" });
     }
 
-    if (order.status !== "available") {
-      return reply
-        .status(400)
-        .send({ message: "Order is not in an assignable state" });
+    if (order.status !== "ready") { // Assuming 'ready' is the state for available orders
+      return reply.status(400).send({ message: "Order is not in an assignable state (must be 'ready')" });
     }
 
-    // Assign order
     order.deliveryPartner = userId;
-    order.status = "processing"; // optionally update status
+    order.status = "assigned"; // Or 'processing', 'confirmed' depending on your flow
     order.statusTimestamps = {
       ...order.statusTimestamps,
-      processingAt: new Date(),
+      assignedAt: new Date(), // Or 'confirmedAt', 'processingAt'
     };
 
     await order.save();
 
-    // Optional: notify clients via Socket.io
-    req.server.io.to(orderId).emit("orderAccepted", order);
+    if (req.server?.io) {
+      req.server.io.to(orderId).emit("orderAccepted", order); // Or "orderAssigned"
+    }
 
-    return reply.send({ message: "Order accepted", order });
+    return reply.send({ message: "Order accepted successfully", order });
   } catch (error) {
-    console.error("Accept order error:", error);
-    return reply.status(500).send({ message: "Failed to accept order", error });
+    console.error("Error in acceptOrderByDeliveryPartner:", error.message, error.stack);
+    return reply.status(500).send({ message: "An internal error occurred. Please try again later." });
   }
 };
 
+// Helper for summarizing order, can be expanded
 function orderSummary(order) {
   return {
     _id: order._id,
     status: order.status,
-    customer: order.customer?.name || order.customer,
-    deliveryPartner: order.deliveryPartner?.name || order.deliveryPartner,
-    branch: order.branch?.name || order.branch,
-    slot: order.slot,
+    customer: order.customer?.name || order.customer?.toString(),
+    deliveryPartner: order.deliveryPartner?.name || order.deliveryPartner?.toString(),
     totalPrice: order.totalPrice,
-    items: order.items?.map((item) => ({
-      product: item.product?.name || item.product,
-      count: item.count,
-      price: item.price,
-    })),
     updatedAt: order.updatedAt,
     statusTimestamps: order.statusTimestamps,
   };
 }
 
+// Helper for setting status timestamps (can be integrated into status updates or kept separate)
+// This helper is not directly used in the refactored code but kept for potential utility
 function setStatusTimestamp(order, status) {
   if (!order.statusTimestamps) order.statusTimestamps = {};
   const now = new Date();
-  switch (status) {
-    case "pending":
-      order.statusTimestamps.confirmedAt = now;
-      break;
-    case "packing":
-      order.statusTimestamps.packedAt = null; // reset packedAt if going back
-      break;
-    case "packed":
-      order.statusTimestamps.packedAt = now;
-      break;
-    case "arriving":
-      order.statusTimestamps.arrivingAt = now;
-      break;
-    case "delivered":
-      order.statusTimestamps.deliveredAt = now;
-      break;
-    case "cancelled":
-      order.statusTimestamps.cancelledAt = now;
-      break;
-    // Add more as needed
-    default:
-      break;
+  const statusTimestampMap = {
+    pending: "pendingAt", // Or whatever initial status you have
+    confirmed: "confirmedAt", // Example if you have a manual confirm step
+    processing: "processingAt",
+    packed: "packedAt",
+    ready: "readyAt",
+    dispatched: "dispatchedAt", // Example, if 'arriving' is more like 'out for delivery'
+    arriving: "arrivingAt",
+    delivered: "deliveredAt",
+    cancelled: "cancelledAt",
+  };
+  const timestampKey = statusTimestampMap[status];
+  if (timestampKey) {
+    order.statusTimestamps[timestampKey] = now;
   }
 }
-// ===============================================================
 
 export const updateItemPackingStatus = async (req, reply) => {
-  const { orderId, itemId } = req.params; // orderId and itemId from URL
-  const { branchId, newStatus } = req.body; // branchId and newStatus in body (newStatus is 'packing' or 'packed')
+  const { orderId, itemId } = req.params;
+  const { branchId, newStatus } = req.body;
+
+  if (!mongoose.Types.ObjectId.isValid(orderId)) {
+    return reply.status(400).send({ message: "Invalid orderId format." });
+  }
+  if (!mongoose.Types.ObjectId.isValid(itemId)) {
+    return reply.status(400).send({ message: "Invalid itemId format." });
+  }
+  if (branchId && !mongoose.Types.ObjectId.isValid(branchId)) { // branchId is required here
+    return reply.status(400).send({ message: "Invalid branchId format." });
+  }
+  if (!branchId) {
+    return reply.status(400).send({ message: "branchId is required." });
+  }
+
 
   if (!["packing", "packed"].includes(newStatus)) {
-    return reply.status(400).send({ message: "Invalid status" });
+    return reply.status(400).send({ message: "Invalid newStatus. Must be 'packing' or 'packed'." });
   }
 
   try {
@@ -471,320 +521,292 @@ export const updateItemPackingStatus = async (req, reply) => {
       return reply.status(404).send({ message: "Order not found" });
     }
 
-    // Find the item in the order matching itemId and branchId
-    const item = order.items.id(itemId);
+    const item = order.items.id(itemId); // Mongoose subdocument lookup by _id
     if (!item) {
       return reply.status(404).send({ message: "Item not found in order" });
     }
 
     if (item.branch.toString() !== branchId) {
-      return reply
-        .status(403)
-        .send({ message: "Cannot update item of other branch" });
+      return reply.status(403).send({ message: "Item does not belong to the specified branch." });
     }
 
-    // Update item status
-    item.status = newStatus;
-    await order.save();
+    item.status = newStatus; // Update status of the specific item
+
+    // If this item is being marked as 'packed', update its packedAt timestamp
+    if (newStatus === 'packed') {
+        item.packedAt = new Date(); // Assuming you add 'packedAt' to item schema
+    }
+
 
     // Check if all items for this branch are packed
-    const branchItems = order.items.filter(
-      (i) => i.branch.toString() === branchId
-    );
-    const allBranchPacked = branchItems.every((i) => i.status === "packed");
+    const branchItems = order.items.filter((i) => i.branch.toString() === branchId);
+    const allBranchItemsPacked = branchItems.every((i) => i.status === "packed");
 
-    // If branch packed all items, check if all branches packed all items
-    let message = "";
-    if (allBranchPacked) {
-      const allItemsPacked = order.items.every((i) => i.status === "packed");
-      if (allItemsPacked) {
-        // Update order status to packed (or ready)
-        order.status = "packed";
+    let message = `Item status updated to ${newStatus}.`;
+
+    if (allBranchItemsPacked) {
+      // Optionally, update a branch-specific packing status in the order if your schema supports it
+      // e.g., order.branchPackingStatus.find(bps => bps.branch.toString() === branchId).status = 'packed';
+      message += " All items for your branch are now packed.";
+
+      const allOrderItemsPacked = order.items.every((i) => i.status === "packed");
+      if (allOrderItemsPacked) {
+        order.status = "packed"; // Overall order status
+        if (!order.statusTimestamps) order.statusTimestamps = {};
         order.statusTimestamps.packedAt = new Date();
-        await order.save();
-        message =
-          "All items packed across all branches. Order status updated to packed.";
-      } else {
-        message =
-          "All items packed for your branch. Waiting for other branches.";
+        message += " All items in the order are packed. Order status updated to 'packed'.";
       }
-    } else {
-      message =
-        "Item status updated. Some items still pending packing in your branch.";
+    }
+
+    await order.save();
+
+    if (req.server?.io) { // Notify clients
+        req.server.io.to(orderId).emit("itemPackingUpdate", { orderId, itemId, newStatus, branchId, overallOrderStatus: order.status });
     }
 
     return reply.send({ message, order });
   } catch (error) {
-    console.error("Error updating packing status:", error);
-    return reply
-      .status(500)
-      .send({ message: "Failed to update packing status", error });
+    console.error("Error in updateItemPackingStatus:", error.message, error.stack);
+    return reply.status(500).send({ message: "An internal error occurred. Please try again later." });
   }
 };
 
 export const getPendingOrdersForBranch = async (req, reply) => {
   const { branchId } = req.params;
-  try {
-    const pendingStatuses = [
-      "pending",
-      "processing",
-      "packing",
-      "packed",
-      "ready",
-    ];
+  if (!mongoose.Types.ObjectId.isValid(branchId)) {
+    return reply.status(400).send({ message: "Invalid branchId format." });
+  }
 
-    // Fetch orders that contain items from this branch and are in relevant statuses
+  try {
+    // Statuses that mean an order is active and might need branch attention
+    const relevantStatuses = ["pending", "confirmed", "processing", "packing", "packed", "ready"];
+
     const orders = await Order.find({
-      status: { $in: pendingStatuses },
-      "items.branch": branchId,
+      status: { $in: relevantStatuses },
+      "items.branch": branchId, // Find orders that have at least one item from this branch
     })
-      .populate("customer", "name  address.area address.pinCode")
-      .populate("deliveryPartner", "name phone")
-      .populate("items.product", "name image")
-      .select(
-        "customer slot orderId status createdAt totalPrice items pickupLocations"
-      )
+      .populate("customer", "name address.area address.pinCode") // Customer details
+      .populate("deliveryPartner", "name phone") // If assigned
+      .populate("items.product", "name image sku") // Product details for items
+      .select("customer slot orderId status createdAt totalPrice items pickupLocations deliveryLocation statusTimestamps") // Select specific fields
       .sort({ createdAt: -1 });
 
-    // Filter items to only those belonging to this branch
+    // Filter items within each order to only those belonging to the specified branch for the response
     const filteredOrders = orders.map((order) => {
-      const filteredItems = order.items.filter(
-        (item) => item.branch.toString() === branchId
+      const itemsForThisBranch = order.items.filter(
+        (item) => item.branch.toString() === branchId && item.status !== 'cancelled' // Exclude cancelled items
       );
       return {
-        ...order.toObject(),
-        items: filteredItems,
+        ...order.toObject(), // Convert Mongoose doc to plain object
+        items: itemsForThisBranch, // Replace items with only those for this branch
       };
-    });
+    }).filter(o => o.items.length > 0); // Only return orders that still have items for this branch
 
     return reply.send(filteredOrders);
   } catch (error) {
-    console.error("Fetch pending orders for branch failed:", error);
-    return reply
-      .status(500)
-      .send({ message: "Failed to fetch pending orders", error });
+    console.error("Error in getPendingOrdersForBranch:", error.message, error.stack);
+    return reply.status(500).send({ message: "An internal error occurred. Please try again later." });
   }
 };
 
 export const getOrderByIdFC = async (req, reply) => {
   try {
     const { orderId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return reply.status(400).send({ message: "Invalid orderId format." });
+    }
 
     const order = await Order.findById(orderId)
-      .populate("customer")
-      .populate("deliveryPartner")
-      .populate("items.product")
-      .populate("items.branch")
-      .populate("pickupLocations.branch");
+      .populate("customer", "name phone email address") // More customer details
+      .populate("deliveryPartner", "name phone")
+      .populate("items.product") // Full product
+      .populate("items.branch", "name location") // Branch for each item
+      .populate("pickupLocations.branch", "name location address"); // Branch for each pickup location
 
     if (!order) {
       return reply.status(404).send({ message: "Order not found" });
     }
+    // Add authorization if FC users are tied to specific branches/orders
+    // const fcUserBranch = req.user?.branch;
+    // if (!order.items.some(item => item.branch.toString() === fcUserBranch)) {
+    //    return reply.status(403).send({ message: "Unauthorized access to this order for your branch." });
+    // }
 
     return reply.send(order);
   } catch (error) {
-    console.error("Get order by ID error:", error);
-    return reply.status(500).send({ message: "Failed to get order", error });
+    console.error("Error in getOrderByIdFC:", error.message, error.stack);
+    return reply.status(500).send({ message: "An internal error occurred. Please try again later." });
   }
 };
 
 export const updateOrderStatusByFC = async (req, reply) => {
   try {
     const { orderId } = req.params;
-    const { status, itemIndex } = req.body;
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return reply.status(400).send({ message: "Invalid orderId format." });
+    }
 
-    // Only allow valid item-level statuses
-    const allowedItemStatuses = ["packing", "packed", "cancelled"];
-    const allowedOrderStatuses = ["ready"];
+    const { status, itemIndex, itemId, itemStatus } = req.body; // itemStatus for specific item, status for overall order
+    const fcUserBranch = req.user?.branch; // Assuming FC user has a branch in their token
+
+    if (!fcUserBranch) {
+        return reply.status(401).send({ message: "Unauthorized: FC user branch not found."});
+    }
+     if (!mongoose.Types.ObjectId.isValid(fcUserBranch)) {
+        return reply.status(400).send({ message: "Invalid Branch ID format in FC token."});
+    }
+
 
     const order = await Order.findById(orderId);
     if (!order) return reply.status(404).send({ message: "Order not found" });
 
     if (["cancelled", "delivered"].includes(order.status)) {
-      return reply
-        .status(400)
-        .send({ message: "Cannot modify completed order" });
+      return reply.status(400).send({ message: "Cannot modify a completed or cancelled order." });
     }
 
-    if (status === "ready") {
-      // Handle full order ready update
-      const allPacked = order.items.every((item) => item.status === "packed");
-      if (!allPacked) {
-        return reply.status(400).send({
-          message: "All items must be packed before setting order to ready",
-        });
-      }
-      order.status = "ready";
-      order.statusTimestamps ??= {};
-      order.statusTimestamps.readyAt = new Date();
+    // Logic for updating a specific item's status (e.g., packed, cancelled by FC)
+    if (itemId && itemStatus) {
+        if (!mongoose.Types.ObjectId.isValid(itemId)) {
+            return reply.status(400).send({ message: "Invalid itemId format for item status update." });
+        }
+        const itemToUpdate = order.items.id(itemId);
+        if (!itemToUpdate) {
+            return reply.status(404).send({ message: `Item with ID ${itemId} not found in this order.` });
+        }
+        // Ensure FC is updating an item related to their branch
+        if (itemToUpdate.branch.toString() !== fcUserBranch) {
+            return reply.status(403).send({ message: `Not authorized to update this item. Item belongs to branch ${itemToUpdate.branch}. Your branch is ${fcUserBranch}` });
+        }
+        const allowedItemUpdateStatuses = ["packing", "packed", "cancelled_by_fc"]; // Example
+        if (!allowedItemUpdateStatuses.includes(itemStatus)) {
+            return reply.status(400).send({ message: `Invalid item status: ${itemStatus}` });
+        }
+        itemToUpdate.status = itemStatus;
+        // itemToUpdate.statusHistory.push({ status: itemStatus, updatedAt: new Date(), updatedBy: req.user.userId });
+    }
+    // Logic for updating overall order status (e.g., to 'ready' or 'cancelled_by_fc')
+    else if (status) {
+        const allowedOrderUpdateStatuses = ["ready", "processing", "cancelled_by_fc"]; // Example
+        if (!allowedOrderUpdateStatuses.includes(status)) {
+            return reply.status(400).send({ message: `Invalid order status: ${status}` });
+        }
+        // If setting to 'ready', check if all items are packed (or handle partial readiness)
+        if (status === "ready") {
+            const allItemsForFcBranchPacked = order.items
+                .filter(item => item.branch.toString() === fcUserBranch)
+                .every((item) => item.status === "packed");
+
+            if (!allItemsForFcBranchPacked && !order.items.every(item => item.status === "packed")) { // Check if ALL items are packed if not specific to FC branch logic
+                 return reply.status(400).send({ message: "All items (for this FC's branch or all branches) must be packed before setting order to ready." });
+            }
+        }
+        order.status = status;
+        if (!order.statusTimestamps) order.statusTimestamps = {};
+        order.statusTimestamps[`${status}At`] = new Date(); // e.g. readyAt
+        // order.statusHistory.push({ status: status, updatedAt: new Date(), updatedBy: req.user.userId });
     } else {
-      // Validate item status
-      if (!allowedItemStatuses.includes(status)) {
-        return reply
-          .status(400)
-          .send({ message: "Invalid item status update" });
-      }
-
-      // Validate itemIndex
-      if (
-        typeof itemIndex !== "number" ||
-        itemIndex < 0 ||
-        itemIndex >= order.items.length
-      ) {
-        return reply.status(400).send({ message: "Invalid item index" });
-      }
-
-      // Update item status
-      order.items[itemIndex].status = status;
-
-      // Handle confirmedAt timestamp if first packing action
-      if (
-        status === "packing" &&
-        !order.statusTimestamps?.confirmedAt &&
-        !order.items.some(
-          (item, i) =>
-            i !== itemIndex && ["packing", "packed"].includes(item.status)
-        )
-      ) {
-        order.statusTimestamps ??= {};
-        order.statusTimestamps.confirmedAt = new Date();
-      }
-
-      // If all items are packed, update order status and packedAt
-      const allPacked = order.items.every((item) => item.status === "packed");
-      if (allPacked) {
-        order.status = "packed";
-        order.statusTimestamps ??= {};
-        order.statusTimestamps.packedAt = new Date();
-      }
+        return reply.status(400).send({ message: "No valid status update provided (neither itemStatus nor overall order status)." });
     }
 
     await order.save();
 
-    req.server?.io?.to(orderId).emit("FCOrderUpdate", order);
+    if (req.server?.io) {
+      req.server.io.to(orderId).emit("FCOrderUpdate", order); // Notify clients
+    }
 
-    return reply.send({ message: "Order status updated", order });
+    return reply.send({ message: "Order successfully updated by FC.", order });
   } catch (error) {
-    console.error("FC Order status update error:", error);
-    return reply.status(500).send({
-      message: "Failed to update order",
-      error: error.message || error,
-    });
+    console.error("Error in updateOrderStatusByFC:", error.message, error.stack);
+    return reply.status(500).send({ message: "An internal error occurred. Please try again later." });
   }
 };
 
-export const getAvailableOrdersForDelivery = async (req, reply) => {
-  try {
-    // const deliveryPartnerId = req.body.userId;
-
-    const deliveryPartnerId = req.query.userId;
-    if (!deliveryPartnerId)
-      return reply.code(400).send({ error: "User ID missing" });
-
-    const orders = await Order.find({
-      $or: [
-        { status: "ready" },
-        {
-          status: { $in: ["assigned", "delivered"] },
-          // deliveryPartner: deliveryPartnerId,
-        },
-      ],
-    })
-      .populate("customer", "name phone, address")
-      .populate("items.product orderId")
-      .populate("items.branch")
-      .populate("pickupLocations.branch")
-      .sort({ createdAt: -1 });
-
-    const available = orders.filter((order) => order.status === "ready");
-    const assigned = orders.filter((order) => order.status === "assigned");
-    const delivered = orders.filter((order) => order.status === "delivered");
-
-    return reply.send({ available, assigned, delivered });
-  } catch (error) {
-    console.error("Fetch available/assigned/delivered orders failed:", error);
-    return reply.status(500).send({ message: "Failed to fetch orders", error });
-  }
-};
 
 export const updateOrderStatusByDeliveryPartner = async (req, reply) => {
   try {
     const { orderId } = req.params;
-    const { status, paymentStatus, paymentMethod, userId } = req.body;
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return reply.status(400).send({ message: "Invalid orderId format." });
+    }
 
-    // Only allow delivery partner to set these statuses
-    const allowedStatuses = ["arriving", "delivered", "cancelled"];
-    if (!allowedStatuses.includes(status)) {
-      return reply.status(400).send({ message: "Invalid status update" });
+    const { status, paymentStatus, paymentMethod, deliveryLocation } = req.body; // deliveryLocation for live tracking
+    const userId = req.user?.userId; // userId from token
+
+    if (!userId) {
+      return reply.status(401).send({ message: "Unauthorized: User ID not found in token." });
+    }
+     if (!mongoose.Types.ObjectId.isValid(userId)) {
+        return reply.status(400).send({ message: "Invalid User ID format in token."});
+    }
+
+
+    const allowedStatuses = ["arriving", "delivered", "cancelled_by_dp", "undeliverable"]; // DP specific statuses
+    if (!status || !allowedStatuses.includes(status)) {
+      return reply.status(400).send({ message: `Invalid status. Must be one of: ${allowedStatuses.join(", ")}` });
     }
 
     const order = await Order.findById(orderId);
     if (!order) return reply.status(404).send({ message: "Order not found" });
 
-    // Only the assigned delivery partner can update
     if (!order.deliveryPartner || order.deliveryPartner.toString() !== userId) {
-      return reply.status(403).send({ message: "Not authorized" });
+      return reply.status(403).send({ message: "Not authorized to update this order. You are not the assigned delivery partner." });
     }
 
-    // Prevent overwriting final statuses
-    if (["cancelled", "delivered"].includes(order.status)) {
-      return reply.status(400).send({ message: "Order already completed" });
+    if (["cancelled", "delivered", "cancelled_by_fc", "undeliverable"].includes(order.status)) {
+      return reply.status(400).send({ message: `Order is already in a final state: ${order.status}` });
     }
 
-    // Update order status
     order.status = status;
-
-    // Update payment status and method if provided
-    if (paymentStatus) {
-      order.payment.status = paymentStatus;
-    }
-    if (paymentMethod) {
-      order.payment.method = paymentMethod;
-    }
+    if (paymentStatus) order.payment.status = paymentStatus;
+    if (paymentMethod) order.payment.method = paymentMethod;
+    // if (deliveryLocation) order.deliveryPersonLastLocation = deliveryLocation; // Store current location
 
     if (!order.statusTimestamps) order.statusTimestamps = {};
-    order.statusTimestamps[`${status}At`] = new Date();
+    order.statusTimestamps[`${status}At`] = new Date(); // e.g. deliveredAt
 
     await order.save();
 
-    // Optional: notify via socket.io
     if (req.server?.io) {
       req.server.io.to(orderId).emit("DeliveryOrderUpdate", order);
     }
 
     return reply.send({
-      message: "Order status and payment updated",
-      order: orderSummary(order),
+      message: `Order status updated to ${status}.`,
+      order: orderSummary(order), // Use helper for concise response
     });
   } catch (error) {
-    console.error("Delivery partner status update error:", error, error?.stack);
-    return reply.status(500).send({
-      message: "Failed to update order",
-      error: error.message || error,
-    });
+    console.error("Error in updateOrderStatusByDeliveryPartner:", error.message, error.stack);
+    return reply.status(500).send({ message: "An internal error occurred. Please try again later." });
   }
 };
-// GET orders assigned to this delivery partner and not yet delivered
-export const getAssignedPendingOrdersForDeliveryPartner = async (
-  req,
-  reply
-) => {
+
+export const getAssignedPendingOrdersForDeliveryPartner = async (req, reply) => {
   try {
-    const deliveryPartnerId = req.body.userId;
+    const deliveryPartnerId = req.user?.userId; // userId from token
+    if (!deliveryPartnerId) {
+      return reply.status(401).send({ message: "Unauthorized: User ID not found in token." });
+    }
+    if (!mongoose.Types.ObjectId.isValid(deliveryPartnerId)) {
+        return reply.status(400).send({ message: "Invalid Delivery Partner ID format in token."});
+    }
+
+
+    // Statuses meaning order is active and assigned but not yet final
+    const pendingStatuses = ["assigned", "processing", "packing", "packed", "ready", "dispatched", "arriving"];
 
     const orders = await Order.find({
       deliveryPartner: deliveryPartnerId,
-      status: { $ne: "delivered" },
+      status: { $in: pendingStatuses },
     })
-      .populate("customer")
-      .populate("items.product")
-      .populate("items.branch")
-      .populate("pickupLocations.branch")
-      .sort({ createdAt: -1 });
+      .populate("customer", "name phone address")
+      .populate("items.product", "name image") // Minimal product details
+      .populate("items.branch", "name address") // Branch for items
+      .populate("pickupLocations.branch", "name address location") // Pickup locations
+      .sort({ "statusTimestamps.assignedAt": -1, createdAt: -1 }); // Sort by assignment time then creation
 
     reply.send(orders);
-  } catch (err) {
-    console.error("Error fetching assigned pending orders:", err);
-    reply.status(500).send({ message: "Server Error" });
+  } catch (error) { // Changed err to error
+    console.error("Error in getAssignedPendingOrdersForDeliveryPartner:", error.message, error.stack);
+    reply.status(500).send({ message: "An internal error occurred. Please try again later." });
   }
 };

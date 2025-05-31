@@ -1,6 +1,6 @@
 import invoiceHandler from "../controllers/invoice/main.js";
 import {
-  comfirmOrder,
+  confirmOrder, // Corrected typo
   getOrder,
   updateOrderStatus,
   getOrderById,

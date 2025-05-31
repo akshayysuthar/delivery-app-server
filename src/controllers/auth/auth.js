@@ -1,6 +1,6 @@
 import jwt from "jsonwebtoken";
 import { Admin, Customer, DeliveryPartner } from "../../models/user.js";
-import { Address } from "../../models/address.js";
+// Removed Address import as it's embedded now: import { Address } from "../../models/address.js";
 
 export const refreshToken = async (req, reply) => {
   const { refreshToken } = req.body;
@@ -12,12 +12,22 @@ export const refreshToken = async (req, reply) => {
     const decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
     let user;
 
+    // This logic might need adjustment based on which user types actually use refresh tokens
     if (decoded.role === "Customer") {
       user = await Customer.findById(decoded.userId);
     } else if (decoded.role === "DeliveryPartner") {
       user = await DeliveryPartner.findById(decoded.userId);
-    } else {
-      return reply.status(403).send({ message: "Invalid Role" });
+    } else if (decoded.role === "Admin" || decoded.role === "FcAdmin" || decoded.role === "BranchAdmin" || decoded.role === "Picker" || decoded.role === "Seller") {
+      // Assuming Admins and other roles might also use refresh tokens
+      user = await Admin.findById(decoded.userId) || // General Admin
+             await DeliveryPartner.findById(decoded.userId) || // For other user types if they share a common login or refresh path
+             await Customer.findById(decoded.userId); // Fallback or specific role check
+      // Add specific model checks if different models are used for FcAdmin, BranchAdmin etc.
+    }
+
+
+    if (!user) {
+      return reply.status(404).send({ message: "User not found for refresh token" });
     }
 
     const { accessToken, refreshToken: newRefreshToken } = generateTokens(user);
@@ -27,27 +37,28 @@ export const refreshToken = async (req, reply) => {
       refreshToken: newRefreshToken,
     });
   } catch (error) {
-    return reply.status(403).send({ message: "Invalid Refresh Token" });
+    console.error("Refresh Token Error:", error); // Standardized error logging
+    return reply.status(403).send({ message: "Invalid Refresh Token. Please login again." }); // Standardized error message
   }
 };
+
 const generateTokens = (user) => {
   const accessToken = jwt.sign(
-    { userId: user._id, role: user.role },
+    { userId: user._id, role: user.role }, // Ensure user.role is correctly populated
     process.env.ACCESS_TOKEN_SECRET,
     { expiresIn: "1d" }
   );
   const refreshToken = jwt.sign(
-    { userId: user._id, role: user.role },
+    { userId: user._id, role: user.role }, // Ensure user.role is correctly populated
     process.env.REFRESH_TOKEN_SECRET,
     { expiresIn: "7d" }
   );
   return { accessToken, refreshToken };
 };
+
 export const loginCustomer = async (req, reply) => {
   try {
     const { phone } = req.body;
-
-    console.log("Received login request for phone:", phone);
 
     if (!phone || typeof phone !== "string" || phone.trim().length === 0) {
       return reply
@@ -60,13 +71,12 @@ export const loginCustomer = async (req, reply) => {
     if (!customer) {
       customer = new Customer({
         phone,
-        email: phone,
+        // email: phone, // Optional: consider if email should default to phone
         role: "Customer",
-        isActived: false,
+        isActivated: false, // Corrected typo: isActived -> isActivated
       });
       await customer.save();
 
-      // ✅ Generate token even if onboarding is pending
       const { accessToken, refreshToken } = generateTokens(customer);
 
       return reply.send({
@@ -78,33 +88,25 @@ export const loginCustomer = async (req, reply) => {
       });
     }
 
-    console.log("Existing customer found:", customer);
-
+    // For existing customers, password check would be needed if they set one up
+    // This flow assumes phone OTP or a different login mechanism if password isn't used here
     const { accessToken, refreshToken } = generateTokens(customer);
-
-    console.log("Tokens generated");
 
     return reply.send({
       message: "Login Successful",
       accessToken,
       refreshToken,
       customer,
-      // onboardingRequired: false,
     });
   } catch (error) {
-    console.error("Login Error:", error);
-    return reply
-      .status(500)
-      .send({ message: "An error occurred", error: error.message });
+    console.error("Login Error [loginCustomer]:", error); // Standardized
+    return reply.status(500).send({ message: "An internal error occurred. Please try again later." }); // Standardized
   }
 };
 
 export const onboarding = async (request, reply) => {
   try {
-    const userId = request.user?.userId; // Set by JWT middleware
-
-    console.log("🔍 Onboarding Request by userId:", userId);
-    console.log("📦 Body Payload:", request.body);
+    const userId = request.user?.userId;
 
     if (!userId) {
       return reply
@@ -115,19 +117,18 @@ export const onboarding = async (request, reply) => {
     const { name, gender, address } = request.body;
 
     if (!name || !gender || !address) {
-      return reply.status(400).send({ message: "Missing required fields." });
+      return reply.status(400).send({ message: "Missing required fields (name, gender, address)." });
     }
 
-    // Update customer
     const updatedCustomer = await Customer.findByIdAndUpdate(
       userId,
       {
         $set: {
           name,
           gender,
-          address: address,
+          address: address, // Assuming 'address' from body is a complete object for the embedded schema
           onboardingStatus: "complete",
-          isActivated: true, // ✅ Make sure this matches schema
+          isActivated: true,
         },
       },
       { new: true }
@@ -146,10 +147,8 @@ export const onboarding = async (request, reply) => {
       customer: updatedCustomer,
     });
   } catch (error) {
-    console.error("🔥 Onboarding Error:", error);
-    return reply
-      .status(500)
-      .send({ message: "Internal Server Error", error: error.message });
+    console.error("Onboarding Error:", error); // Standardized
+    return reply.status(500).send({ message: "An internal error occurred. Please try again later." }); // Standardized
   }
 };
 
@@ -163,14 +162,13 @@ export const loginFcUser = async (req, reply) => {
         .send({ message: "Email and password are required" });
     }
 
-    // Check if FC user exists
-    const fcUser = await Admin.findOne({ email });
+    const fcUser = await Admin.findOne({ email }); // Assuming FcUser is an Admin
     if (!fcUser) {
-      return reply.status(404).send({ message: "FC User not found" });
+      return reply.status(404).send({ message: "User not found" }); // Generic message
     }
 
-    // Simple plain password check (use hashing in prod)
-    if (fcUser.password !== password) {
+    const isMatch = await fcUser.comparePassword(password);
+    if (!isMatch) {
       return reply.status(401).send({ message: "Invalid credentials" });
     }
 
@@ -180,17 +178,14 @@ export const loginFcUser = async (req, reply) => {
       message: "Login successful",
       accessToken,
       refreshToken,
-      user: fcUser,
+      user: fcUser, // Consider what user data to return
     });
   } catch (error) {
-    console.error("FC User login error:", error);
-    return reply
-      .status(500)
-      .send({ message: "Internal server error", error: error.message });
+    console.error("Login Error [loginFcUser]:", error); // Standardized
+    return reply.status(500).send({ message: "An internal error occurred. Please try again later." }); // Standardized
   }
 };
 
-// Login controller for Delivery Partner (fixed bugs)
 export const loginDeliveryPartner = async (req, reply) => {
   try {
     const { email, password } = req.body;
@@ -203,10 +198,11 @@ export const loginDeliveryPartner = async (req, reply) => {
 
     const deliveryPartner = await DeliveryPartner.findOne({ email });
     if (!deliveryPartner) {
-      return reply.status(404).send({ message: "Delivery Partner not found" });
+      return reply.status(404).send({ message: "User not found" }); // Generic message
     }
 
-    if (deliveryPartner.password !== password) {
+    const isMatch = await deliveryPartner.comparePassword(password);
+    if (!isMatch) {
       return reply.status(401).send({ message: "Invalid credentials" });
     }
 
@@ -216,60 +212,14 @@ export const loginDeliveryPartner = async (req, reply) => {
       message: "Login successful",
       accessToken,
       refreshToken,
-      user: deliveryPartner,
+      user: deliveryPartner, // Consider what user data to return
     });
   } catch (error) {
-    console.error("Delivery Partner login error:", error);
-    return reply
-      .status(500)
-      .send({ message: "Internal server error", error: error.message });
+    console.error("Login Error [loginDeliveryPartner]:", error); // Standardized
+    return reply.status(500).send({ message: "An internal error occurred. Please try again later." }); // Standardized
   }
 };
 
-export const fetchUser = async (req, reply) => {
-  try {
-    const { userId, role } = req.user;
-    let user;
-
-    if (role === "Customer") {
-      user = await Customer.findById(userId).populate("Address");
-    } else if (role === "DeliveryPartner") {
-      user = await DeliveryPartner.findById(userId);
-    } else {
-      return reply.status(403).send({ message: "Invalid Role" });
-    }
-    if (!user) {
-      return reply.status(404).send({ message: "User not found" });
-    }
-    return reply.send({
-      message: "User fetched successfully",
-      user,
-    });
-  } catch (error) {
-    return reply.status(500).send({ message: "An error occurred", error });
-  }
-};
-
-export const fetchAddressById = async (req, reply) => {
-  try {
-    const { addressId } = req.params;
-    if (!addressId) {
-      return reply.status(400).send({ message: "Address ID is required" });
-    }
-
-    const address = await Address.findById(addressId);
-    if (!address) {
-      return reply.status(404).send({ message: "Address not found" });
-    }
-
-    return reply.send({ message: "Address fetched successfully", address });
-  } catch (error) {
-    console.error("Fetch address error:", error);
-    return reply
-      .status(500)
-      .send({ message: "Failed to fetch address", error: error.message });
-  }
-};
 export const universalLogin = async (req, reply) => {
   try {
     const { email, password } = req.body;
@@ -281,36 +231,36 @@ export const universalLogin = async (req, reply) => {
     }
 
     let user = null;
-    let role = "";
+    // Add all relevant models you want to check against for universal login
+    const modelsToTry = [Admin, DeliveryPartner, Customer, /* Picker, Seller, BranchAdmin */];
 
-    // 1. Try Admin
-    user = await Admin.findOne({ email });
-    if (user) {
-      role = "Admin";
-    } else {
-      // 2. Try Delivery Partner
-      user = await DeliveryPartner.findOne({ email });
-      if (user) {
-        role = "DeliveryPartner";
-      }
+    for (const Model of modelsToTry) {
+      user = await Model.findOne({ email });
+      if (user) break;
     }
 
     if (!user) {
       return reply.status(404).send({ message: "User not found" });
     }
 
-    // 🔐 Replace with bcrypt in production
-    if (user.password !== password) {
+    if (typeof user.comparePassword !== 'function') {
+        console.error("Login Error [universalLogin]: user object does not have comparePassword method.", user);
+        return reply.status(500).send({ message: "An internal error occurred. Please try again later."});
+    }
+
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
       return reply.status(401).send({ message: "Invalid credentials" });
     }
 
-    // Attach role to user object
+    // Ensure role is part of the user object if not directly on the model
     const userData = {
       _id: user._id,
       name: user.name,
       email: user.email,
-      role: role,
+      role: user.role || user.constructor.modelName, // Fallback to model name if role field isn't there
     };
+
 
     const { accessToken, refreshToken } = generateTokens(userData);
 
@@ -321,114 +271,167 @@ export const universalLogin = async (req, reply) => {
       user: userData,
     });
   } catch (error) {
-    console.error("Login error:", error);
-    return reply
-      .status(500)
-      .send({ message: "Internal server error", error: error.message });
+    console.error("Login Error [universalLogin]:", error); // Standardized
+    return reply.status(500).send({ message: "An internal error occurred. Please try again later." }); // Standardized
+  }
+};
+
+
+export const fetchUser = async (req, reply) => {
+  try {
+    const { userId, role } = req.user; // From JWT
+    let user;
+
+    // Adjust based on your actual user models and roles
+    if (role === "Customer") {
+      user = await Customer.findById(userId); // Removed .populate("Address") as it's embedded
+    } else if (role === "DeliveryPartner") {
+      user = await DeliveryPartner.findById(userId);
+    } else if (role === "Admin" || role === "FcAdmin" || role === "BranchAdmin") { // Example for admin roles
+      user = await Admin.findById(userId);
+    } else {
+      // Add other roles like Picker, Seller if they can fetch their own user data
+      return reply.status(403).send({ message: "Invalid or unsupported role for fetching user data" });
+    }
+
+    if (!user) {
+      return reply.status(404).send({ message: "User not found" });
+    }
+    return reply.send({
+      message: "User fetched successfully",
+      user,
+    });
+  } catch (error) {
+    console.error("Fetch User Error:", error); // Standardized
+    return reply.status(500).send({ message: "An internal error occurred. Please try again later." }); // Standardized
+  }
+};
+
+// This function might be obsolete if addresses are always embedded.
+// If you still need to fetch standalone Address documents (e.g., for some admin task), keep it.
+// Otherwise, it can be removed.
+export const fetchAddressById = async (req, reply) => {
+  try {
+    const { addressId } = req.params;
+    if (!addressId) {
+      return reply.status(400).send({ message: "Address ID is required" });
+    }
+
+    // This implies Address is a separate model, which contradicts the embedded approach for Customer.
+    // Clarify if Address model is still used or if this endpoint is needed.
+    // For now, assuming it might be used for other purposes or by other models.
+    // const address = await Address.findById(addressId);
+    // if (!address) {
+    //   return reply.status(404).send({ message: "Address not found" });
+    // }
+    // return reply.send({ message: "Address fetched successfully", address });
+    console.warn("fetchAddressById may need review due to embedded addresses in Customer model.");
+    return reply.status(404).send({ message: "Endpoint under review."});
+
+  } catch (error) {
+    console.error("Fetch Address Error:", error); // Standardized
+    return reply.status(500).send({ message: "An internal error occurred. Please try again later." }); // Standardized
   }
 };
 
 export const updateCustomerName = async (req, reply) => {
   try {
     const userId = req.user?.userId;
+    if (!userId) return reply.status(401).send({ message: "Unauthorized." });
+
     const { name } = req.body;
     if (!name) {
       return reply.status(400).send({ message: "Name is required" });
     }
 
-    const updated = await Customer.findByIdAndUpdate(
+    const updatedCustomer = await Customer.findByIdAndUpdate(
       userId,
       { $set: { name } },
       { new: true }
     );
-    if (!updated)
+    if (!updatedCustomer)
       return reply.status(404).send({ message: "Customer not found" });
 
     return reply.send({
       message: "Name updated",
-      customer: updated,
+      customer: updatedCustomer,
     });
   } catch (error) {
-    return reply
-      .status(500)
-      .send({ message: "Failed to update name", error: error.message });
+    console.error("Update Customer Name Error:", error); // Standardized
+    return reply.status(500).send({ message: "An internal error occurred. Please try again later." }); // Standardized
   }
 };
 
-// Update customer address
 export const updateCustomerAddress = async (req, reply) => {
   try {
-    const userId = req.user?.userId || req.body.userId;
+    const userId = req.user?.userId; // Corrected: Use JWT user ID
+    if (!userId) {
+      return reply.status(401).send({ message: "Unauthorized." }); // Added check
+    }
+
     const { address } = req.body;
-    if (!address) {
-      return reply.status(400).send({ message: "Address is required" });
+    if (!address || typeof address !== 'object' || Object.keys(address).length === 0) {
+      return reply.status(400).send({ message: "Address object is required and cannot be empty." });
     }
 
     const customer = await Customer.findById(userId);
-    let addressDoc;
-
-    if (customer.address) {
-      // Try to update existing address
-      addressDoc = await Address.findByIdAndUpdate(
-        customer.address,
-        { ...address },
-        { new: true }
-      );
-      // If not found, create new address and link
-      if (!addressDoc) {
-        addressDoc = await Address.create({ ...address, customerId: userId });
-        customer.address = addressDoc._id;
-        await customer.save();
-      }
-    } else {
-      // No address linked, create new
-      addressDoc = await Address.create({ ...address, customerId: userId });
-      customer.address = addressDoc._id;
-      await customer.save();
+    if (!customer) {
+      return reply.status(404).send({ message: "Customer not found." });
     }
 
-    return reply.send({ message: "Address updated", address: addressDoc });
+    // Update embedded address. Create it if it doesn't exist or merge.
+    // This merges new address fields into existing, or sets new if no address existed.
+    customer.address = { ...(customer.address || {}), ...address };
+    await customer.save();
+
+    return reply.send({ message: "Address updated", address: customer.address });
   } catch (error) {
-    return reply
-      .status(500)
-      .send({ message: "Failed to update address", error: error.message });
+    console.error("Update Customer Address Error:", error); // Standardized
+    return reply.status(500).send({ message: "An internal error occurred. Please try again later." }); // Standardized
   }
 };
 
 export const updatelocation = async (request, reply) => {
   try {
     const { latitude, longitude } = request.body;
-    const userId = request.user?.userId || request.body.userId;
+    const userId = request.user?.userId; // Corrected: Use JWT user ID
 
-    if (!userId || latitude === undefined || longitude === undefined) {
-      return reply
-        .code(400)
-        .send({ error: "userId, latitude, and longitude are required." });
+    if (!userId) {
+      return reply.code(401).send({ error: "Unauthorized." }); // Standardized unauthorized
     }
 
-    const user = await Customer.findById(userId);
-    if (!user) {
+    if (latitude === undefined || longitude === undefined) {
+      return reply
+        .code(400)
+        .send({ error: "Latitude and longitude are required." });
+    }
+
+    const customer = await Customer.findById(userId);
+    if (!customer) {
       return reply.code(404).send({ error: "User not found." });
     }
 
-    // Ensure address exists
-    if (!user.address) user.address = {};
+    // Ensure address object exists before trying to set location on it
+    if (!customer.address) {
+      customer.address = {}; // Initialize address if it's null/undefined
+    }
 
-    user.address.location = {
+    customer.address.location = {
       latitude,
       longitude,
       updatedAt: new Date(),
     };
 
-    await user.save();
+    await customer.save();
 
     return reply.send({
       success: true,
       message: "Location updated successfully",
-      location: user.address.location,
+      location: customer.address.location,
     });
   } catch (err) {
-    request.log.error(err);
-    return reply.code(500).send({ error: "Internal server error" });
+    console.error("Update Location Error:", err); // Standardized
+    // request.log.error(err); // Fastify's default logger, can be kept if preferred
+    return reply.code(500).send({ message: "An internal error occurred. Please try again later." }); // Standardized
   }
 };
