@@ -1,51 +1,80 @@
 import FeaturedSection from "../../models/featuredSection.js";
 import Product from "../../models/products.js";
+import mongoose from "mongoose";
+
+// GET /products/:subcategoryId?branchId=...
 
 export const getProductsBySubcategoryId = async (req, reply) => {
   const { subcategoryId } = req.params;
+  const { branchIds } = req.query;
+
+  if (!branchIds) {
+    return reply.status(400).send({ message: "branchIds is required." });
+  }
+
+  // Convert string IDs to ObjectId
+  const branchIdArray = branchIds
+    .split(",")
+    .map((id) => new mongoose.Types.ObjectId(id.trim()));
 
   try {
-    const products = await Product.find({ subcategory: subcategoryId }).exec();
+    const products = await Product.find({
+      subcategory: new mongoose.Types.ObjectId(subcategoryId),
+      branches: { $in: branchIdArray },
+      // isActive: true,
+    }).exec();
 
-    if (products.length === 0) {
-      return reply
-        .status(404)
-        .send({ message: "No products found for this subcategory." });
+    if (!products || products.length === 0) {
+      return reply.status(404).send({
+        message:
+          "No products found for this subcategory in any of the specified branches.",
+      });
     }
+
+    console.log("Querying products for subcategory:", subcategoryId);
+    console.log("Branch IDs:", branchIdArray);
 
     return reply.send(products);
   } catch (error) {
+    console.error("Product fetch error:", error);
     return reply.status(500).send({ message: "An error occurred", error });
   }
 };
 
 export const searchProducts = async (req, reply) => {
-  const { q } = req.query;
+  const { q, branchId } = req.query;
 
   if (!q) {
     return reply.status(400).send({ message: "Search query is required." });
   }
 
   try {
-    // Case-insensitive partial match on name, description, or brand
     const regex = new RegExp(q, "i");
 
-    const matchedProducts = await Product.find({
+    const baseQuery = {
       $or: [
         { name: regex },
         { description: regex },
         { brand: regex },
-        { tags: regex }, // optional: search in tags too
+        { tags: regex },
       ],
-    }).limit(20);
+    };
 
-    // Related products from same category
+    // If branch filtering is needed
+    if (branchId) {
+      baseQuery.branch = branchId; // assuming your Product schema has `branch`
+    }
+
+    const matchedProducts = await Product.find(baseQuery).limit(20);
+
+    // Optional: fetch related products
     let relatedProducts = [];
     if (matchedProducts.length > 0) {
       const categoryId = matchedProducts[0].category;
       relatedProducts = await Product.find({
         category: categoryId,
         _id: { $nin: matchedProducts.map((p) => p._id) },
+        ...(branchId && { branches: branchId }),
       })
         .limit(5)
         .select("-category");

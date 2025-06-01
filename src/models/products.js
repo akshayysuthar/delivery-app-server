@@ -26,11 +26,13 @@ const productSchema = new mongoose.Schema({
     ref: "Subcategory",
     required: true,
   },
-  branch: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Branch",
-    required: true,
-  },
+  branches: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Branch",
+      required: true,
+    },
+  ],
   seller: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Seller",
