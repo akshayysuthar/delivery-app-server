@@ -104,8 +104,11 @@ export const comfirmOrder = async (req, reply) => {
     const order = await Order.findById(orderId);
     if (!order) return reply.status(404).send({ message: "Order not found" });
 
-    if (order.status !== "ready") {
-      return reply.status(400).send({ message: "Order is not available" });
+    // Allow assignment if status is "ready" or "packed"
+    if (!["ready", "packed"].includes(order.status)) {
+      return reply
+        .status(400)
+        .send({ message: "Order is not available for assignment" });
     }
 
     order.deliveryPartner = userId;
@@ -124,7 +127,7 @@ export const comfirmOrder = async (req, reply) => {
   } catch (error) {
     console.error("Confirm order error:", error, error?.stack);
     return reply.status(500).send({
-      message: "Failed to comfirm order",
+      message: "Failed to confirm order",
       error: error.message || error,
     });
   }
@@ -207,7 +210,7 @@ export const getOrder = async (req, reply) => {
     let query = { customer: userId };
 
     const orders = await Order.find(query)
-      .populate("customer branch items.product deliveryPartner")
+      .populate("customer items.product deliveryPartner")
       .lean();
 
     return reply.send(orders);
@@ -455,10 +458,12 @@ function setStatusTimestamp(order, status) {
 // ===============================================================
 
 export const updateItemPackingStatus = async (req, reply) => {
-  const { orderId, itemId } = req.params; // orderId and itemId from URL
-  const { branchId, newStatus } = req.body; // branchId and newStatus in body (newStatus is 'packing' or 'packed')
+  const { orderId, itemId } = req.params;
+  const { branchId, newStatus } = req.body;
 
-  if (!["packing", "packed"].includes(newStatus)) {
+  // Allowable statuses
+  const allowedStatuses = ["packing", "packed", "cancelled"];
+  if (!allowedStatuses.includes(newStatus)) {
     return reply.status(400).send({ message: "Invalid status" });
   }
 
@@ -468,7 +473,6 @@ export const updateItemPackingStatus = async (req, reply) => {
       return reply.status(404).send({ message: "Order not found" });
     }
 
-    // Find the item in the order matching itemId and branchId
     const item = order.items.id(itemId);
     if (!item) {
       return reply.status(404).send({ message: "Item not found in order" });
@@ -484,38 +488,84 @@ export const updateItemPackingStatus = async (req, reply) => {
     item.status = newStatus;
     await order.save();
 
-    // Check if all items for this branch are packed
+    // Filter only active (non-cancelled) items for this branch
     const branchItems = order.items.filter(
-      (i) => i.branch.toString() === branchId
+      (i) => i.branch.toString() === branchId && i.status !== "cancelled"
     );
     const allBranchPacked = branchItems.every((i) => i.status === "packed");
 
-    // If branch packed all items, check if all branches packed all items
     let message = "";
+
     if (allBranchPacked) {
-      const allItemsPacked = order.items.every((i) => i.status === "packed");
+      // Check if all non-cancelled items across all branches are packed
+      const allItemsPacked = order.items
+        .filter((i) => i.status !== "cancelled")
+        .every((i) => i.status === "packed");
+
       if (allItemsPacked) {
-        // Update order status to packed (or ready)
         order.status = "packed";
         order.statusTimestamps.packedAt = new Date();
         await order.save();
         message =
-          "All items packed across all branches. Order status updated to packed.";
+          "All active items packed across all branches. Order marked as packed.";
       } else {
         message =
-          "All items packed for your branch. Waiting for other branches.";
+          "All active items packed for your branch. Waiting for others.";
       }
     } else {
-      message =
-        "Item status updated. Some items still pending packing in your branch.";
+      message = "Item status updated.";
+      if (newStatus === "cancelled") {
+        message += " Item has been cancelled.";
+      }
     }
 
     return reply.send({ message, order });
   } catch (error) {
-    console.error("Error updating packing status:", error);
+    console.error("Error updating item status:", error);
     return reply
       .status(500)
-      .send({ message: "Failed to update packing status", error });
+      .send({ message: "Failed to update item status", error });
+  }
+};
+
+export const cancelOrderItem = async (req, reply) => {
+  try {
+    const { orderId, itemId } = req.params;
+
+    const order = await Order.findById(orderId);
+    if (!order) return reply.status(404).send({ message: "Order not found" });
+
+    const item = order.items.find((i) => i._id.toString() === itemId);
+    if (!item)
+      return reply.status(404).send({ message: "Item not found in order" });
+
+    if (item.status === "cancelled") {
+      return reply.status(400).send({ message: "Item already cancelled" });
+    }
+
+    // Mark item as cancelled
+    item.status = "cancelled";
+
+    // Recalculate totalPrice
+    const activeItems = order.items.filter((i) => i.status !== "cancelled");
+    const newItemsTotal = activeItems.reduce((sum, i) => sum + i.itemTotal, 0);
+
+    const deliveryCharge = order.deliveryCharge || 0;
+    const handlingCharge = order.handlingCharge || 0;
+    const discountAmt = parseFloat(order.discount?.amt || 0);
+
+    order.totalPrice =
+      newItemsTotal + deliveryCharge + handlingCharge - discountAmt;
+
+    await order.save();
+
+    return reply.send({ message: "Item cancelled and totals updated", order });
+  } catch (error) {
+    console.error("Cancel item error:", error);
+    return reply.status(500).send({
+      message: "Failed to cancel item",
+      error: error.message,
+    });
   }
 };
 
@@ -590,9 +640,9 @@ export const updateOrderStatusByFC = async (req, reply) => {
     const { orderId } = req.params;
     const { status, itemIndex } = req.body;
 
-    // Only allow valid item-level statuses
-    const allowedItemStatuses = ["packing", "packed", "cancelled"];
-    const allowedOrderStatuses = ["ready"];
+    // Add "confirmed" if it is an item-level status
+    const allowedItemStatuses = ["packing", "packed", "cancelled", "confirmed"];
+    const allowedOrderStatuses = ["ready", "confirmed"];
 
     const order = await Order.findById(orderId);
     if (!order) return reply.status(404).send({ message: "Order not found" });
@@ -603,26 +653,35 @@ export const updateOrderStatusByFC = async (req, reply) => {
         .send({ message: "Cannot modify completed order" });
     }
 
-    if (status === "ready") {
-      // Handle full order ready update
-      const allPacked = order.items.every((item) => item.status === "packed");
-      if (!allPacked) {
-        return reply.status(400).send({
-          message: "All items must be packed before setting order to ready",
-        });
+    // If status is confirmed (or packing) and order.status is not confirmed yet, update it
+    if (allowedOrderStatuses.includes(status)) {
+      // Order-level update, no itemIndex needed
+      if (status === "confirmed" && order.status !== "confirmed") {
+        order.status = "confirmed";
+        order.statusTimestamps ??= {};
+        if (!order.statusTimestamps.confirmedAt) {
+          order.statusTimestamps.confirmedAt = new Date();
+        }
+      } else if (status === "ready") {
+        // Before ready, ensure all items packed
+        const allPacked = order.items.every((item) => item.status === "packed");
+        if (!allPacked) {
+          return reply.status(400).send({
+            message: "All items must be packed before setting order to ready",
+          });
+        }
+        order.status = "ready";
+        order.statusTimestamps ??= {};
+        order.statusTimestamps.readyAt = new Date();
       }
-      order.status = "ready";
-      order.statusTimestamps ??= {};
-      order.statusTimestamps.readyAt = new Date();
     } else {
-      // Validate item status
+      // Item-level update - validate itemIndex and status
       if (!allowedItemStatuses.includes(status)) {
         return reply
           .status(400)
           .send({ message: "Invalid item status update" });
       }
 
-      // Validate itemIndex
       if (
         typeof itemIndex !== "number" ||
         itemIndex < 0 ||
@@ -634,20 +693,7 @@ export const updateOrderStatusByFC = async (req, reply) => {
       // Update item status
       order.items[itemIndex].status = status;
 
-      // Handle confirmedAt timestamp if first packing action
-      if (
-        status === "packing" &&
-        !order.statusTimestamps?.confirmedAt &&
-        !order.items.some(
-          (item, i) =>
-            i !== itemIndex && ["packing", "packed"].includes(item.status)
-        )
-      ) {
-        order.statusTimestamps ??= {};
-        order.statusTimestamps.confirmedAt = new Date();
-      }
-
-      // If all items are packed, update order status and packedAt
+      // Update order status to packed if all items packed
       const allPacked = order.items.every((item) => item.status === "packed");
       if (allPacked) {
         order.status = "packed";
@@ -683,7 +729,7 @@ export const getAvailableOrdersForDelivery = async (req, reply) => {
     todayEnd.setHours(23, 59, 59, 999);
 
     const orders = await Order.find({
-      createdAt: { $gte: todayStart, $lte: todayEnd },
+      // createdAt: { $gte: todayStart, $lte: todayEnd },
       $or: [
         { status: { $in: ["ready", "packed"] } }, // Show available to all
         {
@@ -822,3 +868,19 @@ export const getOrderByOrderId = async (request, reply) => {
     return reply.code(500).send({ error: "Internal server error" });
   }
 };
+
+export async function getDeliveredOrderCount(req, reply) {
+  try {
+    const { partnerId } = req.params;
+
+    const count = await Order.countDocuments({
+      deliveryPartner: partnerId,
+      status: "delivered",
+    });
+
+    return reply.send({ deliveredOrderCount: count });
+  } catch (error) {
+    req.log.error(error, "Failed to fetch delivered order count");
+    return reply.code(500).send({ message: "Server error" });
+  }
+}

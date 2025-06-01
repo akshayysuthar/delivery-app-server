@@ -432,3 +432,47 @@ export const updatelocation = async (request, reply) => {
     return reply.code(500).send({ error: "Internal server error" });
   }
 };
+
+export const addLocationAdjustment = async (req, reply) => {
+  try {
+    const { customerId } = req.params;
+    const { latitude, longitude, notes, userId } = req.body;
+    const updatedBy = req.user?._id || userId;
+
+    if (!latitude || !longitude) {
+      return reply
+        .code(400)
+        .send({ message: "Latitude and longitude are required." });
+    }
+
+    if (!updatedBy) {
+      return reply.code(400).send({ message: "User ID not provided." });
+    }
+
+    const customer = await Customer.findById(customerId);
+    if (!customer) {
+      return reply.code(404).send({ message: "Customer not found." });
+    }
+
+    customer.locationAdjustments.push({
+      latitude,
+      longitude,
+      notes,
+      updatedBy,
+      updatedAt: new Date(),
+    });
+
+    await customer.save();
+
+    return reply.send({
+      message: "Location adjustment added successfully.",
+      locationAdjustments: customer.locationAdjustments,
+    });
+  } catch (err) {
+    req.log.error(
+      { err, body: req.body, user: req.user },
+      "Error in addLocationAdjustment"
+    );
+    return reply.code(500).send({ message: "Server error." });
+  }
+};

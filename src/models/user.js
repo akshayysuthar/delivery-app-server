@@ -75,6 +75,18 @@ const customerSchema = new mongoose.Schema(
         updatedAt: { type: Date },
       },
     },
+    locationAdjustments: [
+      {
+        latitude: { type: Number, required: true },
+        longitude: { type: Number, required: true },
+        notes: { type: String },
+        updatedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "DeliveryPartner",
+        }, // likely a Delivery Partner
+        updatedAt: { type: Date, default: Date.now },
+      },
+    ],
   },
   { timestamps: true }
 );

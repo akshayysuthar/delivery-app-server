@@ -17,7 +17,7 @@ export const admin = new AdminJS({
         filterProperties: [
           "createdAt", // Date filter (make sure your Order schema has timestamps)
           "customer", // Reference to customer
-          "branch", // Reference to branch
+          "items.branch", // Reference to branch
           // add other filters as needed
         ],
         features: [importExportFeature({ componentLoader })],

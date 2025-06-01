@@ -15,6 +15,44 @@ const orderSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: "DeliveryPartner",
   },
+  status: {
+    type: String,
+    enum: [
+      "prewave",
+      "confirmed",
+      "pending",
+      "packing",
+      "packed",
+      "ready",
+      "assigned",
+      "arriving",
+      "delivered",
+      "cancelled",
+    ],
+    default: "pending",
+  },
+  payment: {
+    method: { type: String, enum: ["COD", "Online", "Cash"], default: "COD" },
+    status: {
+      type: String,
+      enum: ["pending", "paid", "failed"],
+      default: "pending",
+    },
+  },
+
+  totalPrice: { type: Number, required: true },
+  statusTimestamps: {
+    confirmedAt: Date,
+    packedAt: Date,
+    assignedAt: Date,
+    arrivingAt: Date,
+    deliveredAt: Date,
+    cancelledAt: Date,
+  },
+  deliveryCharge: { type: Number },
+  handlingCharge: { type: Number },
+  savings: { type: Number },
+
   items: [
     {
       product: {
@@ -38,19 +76,20 @@ const orderSchema = new mongoose.Schema({
       itemTotal: { type: Number, required: true },
       status: {
         type: String,
-        enum: ["prewave", "pending", "packing", "packed", "ready"],
+        enum: [
+          "prewave",
+          "pending",
+          "confirmed",
+          "packing",
+          "packed",
+          "ready",
+          "cancelled", // Add this
+        ],
         default: "pending",
       },
     },
   ],
 
-  statusTimestamps: {
-    confirmedAt: Date,
-    packedAt: Date,
-    arrivingAt: Date,
-    deliveredAt: Date,
-    cancelledAt: Date,
-  },
   deliveryLocation: {
     latitude: { type: Number, required: true },
     longitude: { type: Number, required: true },
@@ -87,41 +126,13 @@ const orderSchema = new mongoose.Schema({
     type: { type: String },
     amt: { type: String },
   },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
   // orderType: {
   //   type: String,
   //   enum: ["Regular ", "Express"],
   //   default: "Regular",
   // },
-  status: {
-    type: String,
-    enum: [
-      "prewave",
-      "pending",
-      "packing",
-      "packed",
-      "ready",
-      "assigned",
-      "arriving",
-      "delivered",
-      "cancelled",
-    ],
-    default: "pending",
-  },
-  payment: {
-    method: { type: String, enum: ["COD", "Online", "Cash"], default: "COD" },
-    status: {
-      type: String,
-      enum: ["pending", "paid", "failed"],
-      default: "pending",
-    },
-  },
-
-  deliveryCharge: { type: Number },
-  handlingCharge: { type: Number },
-  savings: { type: Number },
-  totalPrice: { type: Number, required: true },
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now },
 });
 
 async function getNextSequenceValue(sequenceName) {

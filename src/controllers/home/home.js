@@ -1,11 +1,10 @@
 import {
   ServiceArea,
+  Product,
   Branch,
   ServiceFees,
   Banner,
   Offer,
-  Category,
-  Product,
 } from "../../models/index.js";
 
 /**
@@ -114,26 +113,34 @@ export const home = async (req, reply) => {
         .send({ message: "No service area or FC found for this pincode." });
     }
 
-    // 2. Pick the first active FC (fulfillment center)
-    const assignedBranch = area.branches.find((b) => b.isActive !== false);
+    // 2. Get all active branches assigned to this service area
+    const assignedBranches = area.branches.filter((b) => b.isActive !== false);
 
-    if (!assignedBranch) {
+    if (assignedBranches.length === 0) {
       return reply
         .status(404)
-        .send({ message: "No active fulfillment center available." });
+        .send({ message: "No active fulfillment centers available." });
     }
 
-    // 3. Get valid slots for today and tomorrow using populated slots
-    const slots = getSlotsForDays(area, area.slots, assignedBranch._id, 2);
+    // 3. Combine slots across all assigned branches (assuming slots are universal)
+    //    If slots are branch-specific, you'll need to adjust this accordingly.
+    //    Here, just use area.slots.
+    const slots = getSlotsForDays(
+      area,
+      area.slots,
+      assignedBranches.map((b) => b._id),
+      2
+    );
 
     // 4. Fetch all service fees
     const serviceFees = await ServiceFees.find().lean();
 
-    // 5. Fetch banners
+    // 5. Fetch banners applicable to any of the assigned branches or globally
+    const branchIds = assignedBranches.map((b) => b._id);
     const banners = await Banner.find({
       isActive: true,
       $or: [
-        { Branch: assignedBranch._id },
+        { Branch: { $in: branchIds } },
         { Branch: { $exists: false } },
         { Branch: null },
       ],
@@ -145,9 +152,16 @@ export const home = async (req, reply) => {
       validTill: { $gte: new Date() },
     });
 
-    // 7. (Optional) Fetch categories/products for productGroups if needed
+    // 7. Fetch products assigned to any of the assigned branches
+    // Assuming your Product model has a field `branches` which is an array of branch ObjectIds where product is available
+    const products = await Product.find({
+      branches: { $in: branchIds },
+      isActive: true,
+    }).lean();
 
-    // 9. Delivery and handling charges as arrays
+    // You can group products by category or subcategory as needed here before sending
+
+    // 8. Delivery and handling charges (could be area-level or branch-level, adjust as needed)
     const deliveryCharges = Array.isArray(area.deliveryCharges)
       ? area.deliveryCharges
       : area.deliveryCharges || 0;
@@ -156,39 +170,33 @@ export const home = async (req, reply) => {
       ? area.handlingCharges
       : area.handlingCharges || 5;
 
-    // 8. Construct response object
+    // 9. Construct response object with multiple branches and products
     const response = {
       meta: {
         timestamp: new Date().toISOString(),
         city: area.city,
         area: area.name,
         pinCode: area.pinCode,
-        fcId: assignedBranch._id,
+        // you can send all assigned branch IDs or names
+        fcIds: branchIds,
         currency: "INR",
         language: "en",
       },
-      fulfillmentCenter: {
-        id: assignedBranch._id,
-        name: assignedBranch.name,
-        address: assignedBranch.address,
-        serviceAreas: area.serviceAreas,
-        supportedPinCodes: area.supportedPinCodes,
+      fulfillmentCenters: assignedBranches.map((branch) => ({
+        id: branch._id,
+        name: branch.name,
+        address: branch.address,
         location: {
-          lat: assignedBranch.location?.latitude,
-          lng: assignedBranch.location?.longitude,
+          lat: branch.location?.latitude,
+          lng: branch.location?.longitude,
         },
-        slots,
-        charges: {
-          deliveryCharges: deliveryCharges, // now always an array
-          handlingCharges: handlingCharges, // now always an array
-        },
-        otherCharge: [],
-        minimumOrderAmount: area.minimumOrderAmount,
-        cutoffBufferMins: area.cutoffBufferMins,
-        freeDeliveryAbove: area.freeDeliveryAbove || null,
-
-        codAvailable: assignedBranch.codAvailable || true,
-        isActive: assignedBranch.isActive,
+        codAvailable: branch.codAvailable || true,
+        isActive: branch.isActive,
+      })),
+      slots, // slots are universal in this case
+      charges: {
+        deliveryCharges,
+        handlingCharges,
       },
       banners: banners.map((banner) => ({
         id: banner._id,
@@ -206,7 +214,12 @@ export const home = async (req, reply) => {
         discountValue: offer.discountValue,
         validTill: offer.validTill,
       })),
-      productGroups: [], // Populate as needed
+      productGroups: [
+        {
+          title: "Available Products",
+          products: products,
+        },
+      ],
       config: {
         featureFlags: {
           enableSearch: true,

@@ -10,6 +10,7 @@ import {
   universalLogin,
   updateCustomerAddress,
   updateCustomerName,
+  addLocationAdjustment,
 } from "../controllers/auth/auth.js";
 import { updateUser } from "../controllers/tracking/user.js";
 import { verifyToken } from "../middleware/verifyToken.js";
@@ -42,4 +43,8 @@ export const authRoutes = async (fastify, options) => {
     onboarding
   );
   fastify.post("/updatelocation", updatelocation);
+  fastify.patch(
+    "/customers/:customerId/location-adjustment",
+    addLocationAdjustment
+  );
 };

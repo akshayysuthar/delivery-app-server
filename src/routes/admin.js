@@ -1,9 +1,15 @@
-import { getAnalytics, getBranchAnalytics, getSellerAnalytics } from "../controllers/analytics/analytics.js";
+import {
+  getAnalytics,
+  getBranchAnalytics,
+  getSellerAnalytics,
+} from "../controllers/analytics/analytics.js";
 import { exportAnalytics } from "../controllers/analytics/export.js";
 import invoiceHandler from "../controllers/invoice/main.js";
 import {
+  cancelOrderItem,
   comfirmOrder,
   getAvailableOrdersForDelivery,
+  getDeliveredOrderCount,
   getOrderByIdFC,
   getPendingOrdersForBranch,
   updateItemPackingStatus,
@@ -34,7 +40,18 @@ export const adminRoutes = async (fastify, options) => {
     "/orders/delivery/:orderId/status",
     updateOrderStatusByDeliveryPartner
   );
+  // fastify.patch("/orders/branch/:orderId/cancel", cancelOrderItem);
+
+  fastify.get(
+    "/delivery-partners/:partnerId/delivered-count",
+    // { preHandler: [fastify.authenticate] }, // if needed
+    getDeliveredOrderCount
+  );
+
+  // invoice
   fastify.get("/order/:orderId/invoice", invoiceHandler);
+
+  // analytics routes
   fastify.get("/analytics/analytics", getAnalytics);
   fastify.get("/analytics/export", exportAnalytics);
   fastify.get("/analytics/branch/:branchId", getBranchAnalytics);
