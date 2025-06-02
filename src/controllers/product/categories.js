@@ -12,11 +12,11 @@ import Subcategory from "../../models/subcatgories.js";
 
 export const getAllCategories = async (req, reply) => {
   try {
-    const categories = await Category.find();
+    const categories = await Category.find({ active: true }); // Only active categories
 
     // Group categories by `group` field
     const grouped = categories.reduce((acc, category) => {
-      const group = category.group || 'Other';
+      const group = category.group || "Other";
       if (!acc[group]) acc[group] = [];
       acc[group].push(category);
       return acc;
@@ -27,7 +27,6 @@ export const getAllCategories = async (req, reply) => {
     return reply.status(500).send({ message: "An error occurred", err });
   }
 };
-
 export const getAllCategoriesWithSubcategories = async (req, reply) => {
   try {
     const categories = await Category.find().lean();
@@ -56,6 +55,7 @@ export const getSubcategoriesByCategoryId = async (req, reply) => {
   try {
     const subcategories = await Subcategory.find({
       category_id: categoryId,
+      active: true,
     }).lean();
     if (subcategories.length === 0) {
       return reply

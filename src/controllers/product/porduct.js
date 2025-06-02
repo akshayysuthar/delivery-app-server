@@ -21,7 +21,7 @@ export const getProductsBySubcategoryId = async (req, reply) => {
     const products = await Product.find({
       subcategory: new mongoose.Types.ObjectId(subcategoryId),
       branches: { $in: branchIdArray },
-      // isActive: true,
+      // active: true,
     }).exec();
 
     if (!products || products.length === 0) {
