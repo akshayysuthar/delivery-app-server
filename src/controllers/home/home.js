@@ -164,11 +164,14 @@ export const home = async (req, reply) => {
     // 8. Delivery and handling charges (could be area-level or branch-level, adjust as needed)
     const deliveryCharges = Array.isArray(area.deliveryCharges)
       ? area.deliveryCharges
-      : area.deliveryCharges || 0;
+      : area.deliveryCharges || 39;
 
     const handlingCharges = Array.isArray(area.handlingCharges)
       ? area.handlingCharges
       : area.handlingCharges || 5;
+
+    const minimumOrderAmount = area?.minimumOrderAmount;
+    const freeDeliveryAbove = area?.freeDeliveryAbove;
 
     // 9. Construct response object with multiple branches and products
     const response = {
@@ -182,7 +185,8 @@ export const home = async (req, reply) => {
         currency: "INR",
         language: "en",
       },
-      fulfillmentCenters: assignedBranches.map((branch) => ({
+
+      fulfillmentCenter: assignedBranches.map((branch) => ({
         id: branch._id,
         name: branch.name,
         address: branch.address,
@@ -193,11 +197,14 @@ export const home = async (req, reply) => {
         codAvailable: branch.codAvailable || true,
         isActive: branch.isActive,
       })),
-      slots, // slots are universal in this case
       charges: {
         deliveryCharges,
         handlingCharges,
+        minimumOrderAmount,
+        freeDeliveryAbove,
       },
+      slots, // slots are universal in this case
+
       banners: banners.map((banner) => ({
         id: banner._id,
         image: banner.image,

@@ -202,20 +202,24 @@ export const updateOrderStatus = async (req, reply) => {
 //   }
 // };
 
+
 export const getOrder = async (req, reply) => {
   try {
     const { userId } = req.query;
-    // const { userId } = req.user;
+    console.log("Received userId:", userId);
 
-    let query = { customer: userId };
+    // Validate
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return reply.status(400).send({ message: "Invalid or missing userId" });
+    }
 
-    const orders = await Order.find(query)
+    const orders = await Order.find({ customer: userId })
       .populate("customer items.product deliveryPartner")
       .lean();
 
     return reply.send(orders);
   } catch (error) {
-    console.log("Get order error:", error);
+    console.error("Get order error:", error);
     return reply.status(500).send({ message: "Failed to get order", error });
   }
 };
