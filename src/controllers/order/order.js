@@ -42,7 +42,7 @@ export const createOrder = async (req, reply) => {
 
     // 1. Collect all unique branch IDs from items
     const uniqueBranchIds = [
-      ...new Set(items.map((item) => item.item.branch.toString())),
+      ...new Set(items.map((item) => item.item.branch)),
     ];
 
     // 2. Fetch all branch details in one query
