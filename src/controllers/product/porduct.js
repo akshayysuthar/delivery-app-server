@@ -62,7 +62,7 @@ export const searchProducts = async (req, reply) => {
 
     // If branch filtering is needed
     if (branchId) {
-      baseQuery.branch = branchId; // assuming your Product schema has `branch`
+      baseQuery.branches = branchId; // assuming your Product schema has `branch`
     }
 
     const matchedProducts = await Product.find(baseQuery).limit(20);

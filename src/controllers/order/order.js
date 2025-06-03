@@ -41,9 +41,7 @@ export const createOrder = async (req, reply) => {
     };
 
     // 1. Collect all unique branch IDs from items
-    const uniqueBranchIds = [
-      ...new Set(items.map((item) => item.item.branch)),
-    ];
+    const uniqueBranchIds = [...new Set(items.map((item) => item.item.branch))];
 
     // 2. Fetch all branch details in one query
     const branches = await Branch.find({ _id: { $in: uniqueBranchIds } });
@@ -202,7 +200,6 @@ export const updateOrderStatus = async (req, reply) => {
 //   }
 // };
 
-
 export const getOrder = async (req, reply) => {
   try {
     const { userId } = req.query;
@@ -215,6 +212,7 @@ export const getOrder = async (req, reply) => {
 
     const orders = await Order.find({ customer: userId })
       .populate("customer items.product deliveryPartner")
+      .sort({ createdAt: -1 }) // <-- Add this line
       .lean();
 
     return reply.send(orders);

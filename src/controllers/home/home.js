@@ -7,6 +7,8 @@ import {
   Offer,
 } from "../../models/index.js";
 
+import { DateTime } from "luxon";
+
 /**
  * Format a slot for response, add slot date info
  */
@@ -23,10 +25,10 @@ const formatSlot = (slot, date) => ({
  * Check if a slot is valid for a given date & current time, based on
  * minOrderTimeMinutes buffer and slot day availability
  */
+
 const isSlotValid = (slot, date) => {
   if (!slot.isActive) return false;
 
-  // Check if slot available on this day
   const daysOfWeek = [
     "Sunday",
     "Monday",
@@ -39,15 +41,19 @@ const isSlotValid = (slot, date) => {
   const dayName = daysOfWeek[date.getDay()];
   if (!slot.availableOnDays.includes(dayName)) return false;
 
-  // Check cutoff buffer (minOrderTimeMinutes) from current time to slot start time
-  const [startHour, startMin] = slot.startTime.split(":").map(Number);
-  const slotStart = new Date(date);
-  slotStart.setHours(startHour, startMin, 0, 0);
+  // Use IST for all time calculations
+  const now = DateTime.now().setZone("Asia/Kolkata");
+  const slotStart = DateTime.fromJSDate(date)
+    .setZone("Asia/Kolkata")
+    .set({
+      hour: Number(slot.startTime.split(":")[0]),
+      minute: Number(slot.startTime.split(":")[1]),
+      second: 0,
+      millisecond: 0,
+    });
 
-  const now = new Date();
-  // Slot must start after (now + minOrderTimeMinutes)
   if (
-    slotStart.getTime() - now.getTime() <
+    slotStart.toMillis() - now.toMillis() <
     slot.minOrderTimeMinutes * 60 * 1000
   ) {
     return false;

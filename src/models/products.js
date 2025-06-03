@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 
 const variantSchema = new mongoose.Schema({
   mrp: { type: Number, required: true },
-  price: { type: Number, required: true },
+  price: { type: Number },
   quantity: { type: String, required: true }, // e.g., "1L", "500g"
   stock: { type: Number, default: 0 },
   available: { type: Boolean, default: true },
