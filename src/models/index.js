@@ -21,6 +21,7 @@ import Subcategory from "./subcatgories.js";
 import { Address } from "./address.js";
 import FeaturedSection from "./featuredSection.js";
 import Slots from "./slot.js";
+import VisualConfig from "./visual.js";
 
 export {
   Order,
@@ -43,5 +44,6 @@ export {
   Seller,
   Offer,
   Banner,
+  VisualConfig,
   CustomerSuggestion,
 };

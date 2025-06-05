@@ -1,6 +1,7 @@
 import {
   getAnalytics,
   getBranchAnalytics,
+  getFulfillmentDashboard,
   getSellerAnalytics,
 } from "../controllers/analytics/analytics.js";
 import { exportAnalytics } from "../controllers/analytics/export.js";
@@ -40,11 +41,10 @@ export const adminRoutes = async (fastify, options) => {
     "/orders/delivery/:orderId/status",
     updateOrderStatusByDeliveryPartner
   );
-  // fastify.patch("/orders/branch/:orderId/cancel", cancelOrderItem);
+  fastify.patch("/order/cancel-item/:orderId/:itemId", cancelOrderItem);
 
   fastify.get(
     "/delivery-partners/:partnerId/delivered-count",
-    // { preHandler: [fastify.authenticate] }, // if needed
     getDeliveredOrderCount
   );
 
@@ -56,4 +56,8 @@ export const adminRoutes = async (fastify, options) => {
   fastify.get("/analytics/export", exportAnalytics);
   fastify.get("/analytics/branch/:branchId", getBranchAnalytics);
   fastify.get("/analytics/seller/:sellerId", getSellerAnalytics);
+  fastify.get(
+    "/fulfillment/admin/dashboard/:branchId",
+    getFulfillmentDashboard
+  );
 };

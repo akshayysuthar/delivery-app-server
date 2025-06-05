@@ -74,6 +74,9 @@ const orderSchema = new mongoose.Schema({
       count: { type: Number, required: true },
       price: { type: Number, required: true },
       itemTotal: { type: Number, required: true },
+      unit: { type: String }, // added this for porduct unit like 1 kg, 500g, 12 items
+      cancellationReason: { type: String }, // 👈 Add this
+
       status: {
         type: String,
         enum: [

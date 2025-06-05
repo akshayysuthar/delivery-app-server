@@ -12,9 +12,9 @@ const S = {
   },
   margins: {
     left: 25,
-    right: 500,
+    right: 25,
   },
-  pageWidth: 612, // A4 pt width approx
+  pageWidth: 612, // A4 pt width
 };
 
 function initJsPDF() {
@@ -34,13 +34,38 @@ export default async function invoiceHandler(request, reply) {
     const order = await Order.findById(orderId)
       .lean()
       .populate("customer")
-      .populate("branch");
-    if (!order) {
-      return reply.code(404).send({ error: "Order not found" });
+      .populate("items.branch"); // Populate items.branch
+    if (
+      !order ||
+      !order.customer ||
+      !order.items?.length ||
+      !order.items[0].branch
+    ) {
+      return reply
+        .code(404)
+        .send({ error: "Order, customer, items, or branch not found" });
     }
 
-    const customer = order.customer;
-    const branch = order.branch;
+    // Filter out cancelled items
+    const activeItems = order.items.filter(
+      (item) => item.status !== "cancelled"
+    );
+    if (!activeItems.length) {
+      return reply.code(400).send({ error: "No active items in order" });
+    }
+
+    // Use the branch from the first active item
+    const branch = activeItems[0].branch;
+
+    // Validate that all active items have the same branch
+    const allSameBranch = activeItems.every(
+      (item) => item.branch._id.toString() === branch._id.toString()
+    );
+    if (!allSameBranch) {
+      console.warn(
+        "Warning: Order contains items from multiple branches. Using first active item's branch for invoice."
+      );
+    }
 
     const doc = initJsPDF();
     const M = S.margins;
@@ -69,34 +94,41 @@ export default async function invoiceHandler(request, reply) {
     doc.setFontSize(F.title);
     const invoiceTitle = "INVOICE";
     const titleWidth = doc.getTextWidth(invoiceTitle);
-    doc.text(invoiceTitle, pageWidth - M.left - titleWidth, 34);
+    doc.text(invoiceTitle, pageWidth - M.right - titleWidth, 34);
 
     doc.setFontSize(F.text);
     const orderIdText = `Order No: ${order.orderId}`;
-    const orderDateText = `Date: ${new Date(
-      order.createdAt
-    ).toLocaleDateString()}`;
+    const orderDateText = `Date: ${
+      order.createdAt ? new Date(order.createdAt).toLocaleDateString() : "N/A"
+    }`;
+    const orderStatusText = `Status: ${order.status || "N/A"}`;
 
     const orderIdWidth = doc.getTextWidth(orderIdText);
     const orderDateWidth = doc.getTextWidth(orderDateText);
+    const orderStatusWidth = doc.getTextWidth(orderStatusText);
 
-    doc.text(orderIdText, pageWidth - M.left - orderIdWidth, 52);
-    doc.text(orderDateText, pageWidth - M.left - orderDateWidth, 68);
+    doc.text(orderIdText, pageWidth - M.right - orderIdWidth, 52);
+    doc.text(orderDateText, pageWidth - M.right - orderDateWidth, 68);
+    doc.text(orderStatusText, pageWidth - M.right - orderStatusWidth, 84);
 
-    // horizontal line
-    doc.setLineWidth(0.5).line(M.left, 90, pageWidth - M.left, 90);
+    // Horizontal line
+    doc.setLineWidth(0.5).line(M.left, 90, pageWidth - M.right, 90);
 
     // --- BRANCH INFO ---
     y = 110;
     doc.setFontSize(F.label).text("Branch:", M.left, y);
+    const branchAddress =
+      order.pickupLocations?.[0]?.address || branch.address || "N/A";
     doc
       .setFontSize(F.text)
-      .text(branch.name, M.left + 60, y)
-      .text(branch.address, M.left + 60, y + 14)
-      .text(`Phone: ${branch.contactNumber}`, M.left + 60, y + 28)
-      .text(`Type: ${branch.type}`, M.left + 60, y + 42)
+      .text(branch.name || "N/A", M.left + 60, y)
+      .text(branchAddress, M.left + 60, y + 14)
+      .text(`Phone: ${branch.contactNumber || "N/A"}`, M.left + 60, y + 28)
+      .text(`Type: ${branch.type || "N/A"}`, M.left + 60, y + 42)
       .text(
-        `Hours: ${branch.operationalHours.open}–${branch.operationalHours.close}`,
+        `Hours: ${branch.operationalHours?.open || "N/A"}–${
+          branch.operationalHours?.close || "N/A"
+        }`,
         M.left + 60,
         y + 56
       );
@@ -106,16 +138,17 @@ export default async function invoiceHandler(request, reply) {
     doc.setFontSize(F.label).text("Customer:", M.left, y);
     doc
       .setFontSize(F.text)
-      .text(customer.name, M.left + 60, y)
-      .text(`Phone: ${customer.phone}`, M.left + 60, y + 14)
+      .text(order.customer.name || "N/A", M.left + 60, y)
+      .text(`Phone: ${order.customer.phone || "N/A"}`, M.left + 60, y + 14)
       .text(
         `Address: ${[
-          customer.address.houseNo,
-          customer.address.streetAddress,
-          customer.address.landmark,
-          customer.address.city,
-          customer.address.state,
-          customer.address.pinCode,
+          order.customer.address?.houseNo,
+          order.customer.address?.streetAddress,
+          order.customer.address?.landmark,
+          order.customer.address?.city,
+          order.customer.address?.state,
+          order.customer.address?.pinCode,
+          order.deliveryAddress?.address,
         ]
           .filter(Boolean)
           .join(", ")}`,
@@ -129,27 +162,33 @@ export default async function invoiceHandler(request, reply) {
     doc.setFontSize(F.label).text("Delivery Slot:", M.left, y);
     doc
       .setFontSize(F.text)
-      .text(`${order.slot.label} (${order.slot.date})`, M.left + 80, y);
+      .text(
+        `${order.slot?.label || "N/A"} (${order.slot?.date || "N/A"})`,
+        M.left + 80,
+        y
+      );
     doc.setFontSize(F.label).text("Payment:", M.left + 300, y);
     doc
       .setFontSize(F.text)
       .text(
-        `${order.payment.method} / ${order.payment.status}`,
+        `${order.payment?.method || "N/A"} / ${order.payment?.status || "N/A"}`,
         M.left + 360,
         y
       );
 
-    // horizontal line
-    doc.line(M.left, y + 20, pageWidth - M.left, y + 20);
+    // Horizontal line
+    doc.line(M.left, y + 20, pageWidth - M.right, y + 20);
 
     // --- ITEMS TABLE HEADER ---
     y += 40;
     const colItem = M.left;
+    const colUnit = M.left + 200;
     const colQty = 280;
     const colPrice = 390;
     const colTotal = 520;
     doc.setFontSize(F.label);
     doc.text("Item", colItem, y);
+    doc.text("Unit", colUnit, y);
     doc.text("Qty", colQty, y, { align: "right" });
     doc.text("Price", colPrice, y, { align: "right" });
     doc.text("Total", colTotal, y, { align: "right" });
@@ -158,57 +197,50 @@ export default async function invoiceHandler(request, reply) {
     y += 16;
     doc.setFontSize(F.text);
     let totalQty = 0;
-    order.items.forEach((i) => {
-      const lineTotal = i.count * i.price;
+    activeItems.forEach((i) => {
       totalQty += i.count;
-      doc.text(i.name, colItem, y, { maxWidth: 250 });
+      doc.text(i.name || "N/A", colItem, y, { maxWidth: 180 });
+      doc.text(i.unit || "N/A", colUnit, y);
       doc.text(String(i.count), colQty, y, { align: "right" });
       doc.text(formatCurrency(i.price), colPrice, y, { align: "right" });
-      doc.text(formatCurrency(lineTotal), colTotal, y, { align: "right" });
+      doc.text(formatCurrency(i.itemTotal), colTotal, y, { align: "right" });
       y += 16;
     });
 
-    // free products
-    if (order.freeProducts?.length) {
-      order.freeProducts.forEach((i) => {
-        doc.text(`${i.name} (Free)`, colItem, y, { maxWidth: 250 });
-        doc.text(String(i.count), colQty, y, { align: "right" });
-        doc.text("₹ 0.00", colPrice, y, { align: "right" });
-        doc.text("₹ 0.00", colTotal, y, { align: "right" });
-        y += 16;
-      });
-    }
-
-    // separator line
-    doc.line(M.left, y + 4, pageWidth - M.left, y + 4);
+    // Separator line
+    doc.line(M.left, y + 4, pageWidth - M.right, y + 4);
 
     // --- SUMMARY ---
     y += 20;
-    const subtotal = order.items.reduce((sum, i) => sum + i.count * i.price, 0);
-    const deliveryFee = order.deliveryFee || 0;
-    const handlingFee = order.handlingFee || 0;
-    const savings = order.savings || 0;
-    const grandTotal = subtotal + deliveryFee + handlingFee - savings;
+    const subtotal = activeItems.reduce((sum, i) => sum + i.itemTotal, 0);
+    const deliveryCharge = order.deliveryCharge || 0;
+    const handlingCharge = order.handlingCharge || 0;
+    const discount = order.discount?.amt ? parseFloat(order.discount.amt) : 0;
+    const grandTotal = subtotal + deliveryCharge + handlingCharge - discount;
 
     doc.setFontSize(F.label);
-    doc.text(`Total items:   ${totalQty}`, M.left, y);
+    doc.text(`Total items: ${totalQty}`, M.left, y);
     doc.text(formatCurrency(subtotal), colTotal, y, { align: "right" });
 
     y += 16;
-    doc.text("Delivery:  ", colPrice, y);
-    doc.text(formatCurrency(deliveryFee), colTotal, y, { align: "right" });
+    doc.text("Delivery: ", colPrice, y);
+    doc.text(formatCurrency(deliveryCharge), colTotal, y, { align: "right" });
 
     y += 16;
-    doc.text("Handling:  ", colPrice, y);
-    doc.text(formatCurrency(handlingFee), colTotal, y, { align: "right" });
+    doc.text("Handling: ", colPrice, y);
+    doc.text(formatCurrency(handlingCharge), colTotal, y, { align: "right" });
 
-    y += 16;
-    doc.text("Savings:  ", colPrice, y);
-    doc.text(`- ${formatCurrency(savings)}`, colTotal, y, { align: "right" });
+    if (discount > 0) {
+      y += 16;
+      doc.text(`Discount (${order.discount?.type || "N/A"}): `, colPrice, y);
+      doc.text(`- ${formatCurrency(discount)}`, colTotal, y, {
+        align: "right",
+      });
+    }
 
     y += 16;
     doc.setFontSize(F.subtitle);
-    doc.text("Grand Total:  ", colPrice, y)
+    doc.text("Grand Total: ", colPrice, y);
     doc.text(formatCurrency(grandTotal), colTotal, y, { align: "right" });
 
     // --- CUSTOMER SUPPORT INFO ---
@@ -228,7 +260,7 @@ export default async function invoiceHandler(request, reply) {
         "Thank you for your business! Goods once sold cannot be returned except in case of damage.",
         M.left,
         y,
-        { maxWidth: pageWidth - 2 * M.left }
+        { maxWidth: pageWidth - 2 * M.right }
       );
 
     // SEND PDF

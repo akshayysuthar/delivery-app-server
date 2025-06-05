@@ -45,6 +45,7 @@ export const admin = new AdminJS({
     { resource: Models.Seller },
     { resource: Models.Offer },
     { resource: Models.Banner },
+    { resource: Models.VisualConfig },
     { resource: Models.CustomerSuggestion },
   ],
   branding: {

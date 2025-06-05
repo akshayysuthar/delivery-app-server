@@ -153,6 +153,7 @@ export const onboarding = async (request, reply) => {
   }
 };
 
+
 export const loginFcUser = async (req, reply) => {
   try {
     const { email, password } = req.body;
@@ -189,7 +190,6 @@ export const loginFcUser = async (req, reply) => {
       .send({ message: "Internal server error", error: error.message });
   }
 };
-
 // Login controller for Delivery Partner (fixed bugs)
 export const loginDeliveryPartner = async (req, reply) => {
   try {
@@ -354,7 +354,6 @@ export const updateCustomerName = async (req, reply) => {
       .send({ message: "Failed to update name", error: error.message });
   }
 };
-
 // Update customer address
 export const updateCustomerAddress = async (req, reply) => {
   try {
@@ -395,6 +394,8 @@ export const updateCustomerAddress = async (req, reply) => {
   }
 };
 
+
+
 export const updatelocation = async (request, reply) => {
   try {
     const { latitude, longitude } = request.body;
@@ -433,6 +434,7 @@ export const updatelocation = async (request, reply) => {
   }
 };
 
+// to adjust the location of custoner addres if it is wrong 
 export const addLocationAdjustment = async (req, reply) => {
   try {
     const { customerId } = req.params;
@@ -474,5 +476,33 @@ export const addLocationAdjustment = async (req, reply) => {
       "Error in addLocationAdjustment"
     );
     return reply.code(500).send({ message: "Server error." });
+  }
+};
+
+export const saveFcmToken = async (req, reply) => {
+  try {
+    const { userId, fcmToken } = req.body;
+
+    if (!userId || !fcmToken) {
+      return reply
+        .code(400)
+        .send({ message: "userId and fcmToken are required" });
+    }
+
+    const updated = await Customer.findByIdAndUpdate(
+      userId,
+      { fcmToken },
+      { new: true }
+    );
+    if (!updated) {
+      return reply.code(404).send({ message: "Customer not found" });
+    }
+
+    return reply.send({ message: "FCM token saved successfully" });
+  } catch (err) {
+    console.error("❌ Error saving FCM token:", err);
+    return reply
+      .code(500)
+      .send({ message: "Internal server error", error: err.message });
   }
 };

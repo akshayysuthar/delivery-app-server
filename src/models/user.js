@@ -42,6 +42,7 @@ const customerSchema = new mongoose.Schema(
         message: "Phone number must be 10-15 digits",
       },
     },
+    fcmToken: { type: String },
     role: { type: String, enum: ["Customer"], default: "Customer" },
     onboardingStatus: {
       type: String,

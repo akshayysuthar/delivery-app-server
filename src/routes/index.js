@@ -9,6 +9,7 @@ import { orderRoutes } from "./order.js";
 import { categoryRoutes, productRoutes } from "./products.js";
 import fastifyCors from "@fastify/cors";
 import { supportRoutes } from "./support.js";
+import notificationRoutes from "./notication/notificationRoutes.js";
 
 const prefix = "/api";
 
@@ -27,4 +28,5 @@ export const registerRoutes = async (fastify) => {
   fastify.register(loggingRoutes, { prefix });
   fastify.register(offerRoutes, { prefix: prefix });
   fastify.register(supportRoutes, { prefix: prefix });
+  fastify.register(notificationRoutes, { prefix: prefix });
 };

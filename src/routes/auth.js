@@ -11,6 +11,7 @@ import {
   updateCustomerAddress,
   updateCustomerName,
   addLocationAdjustment,
+  saveFcmToken,
 } from "../controllers/auth/auth.js";
 import { updateUser } from "../controllers/tracking/user.js";
 import { verifyToken } from "../middleware/verifyToken.js";
@@ -47,4 +48,6 @@ export const authRoutes = async (fastify, options) => {
     "/customers/:customerId/location-adjustment",
     addLocationAdjustment
   );
+
+  fastify.post("/auth/save-fcm-token", saveFcmToken);
 };

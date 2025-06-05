@@ -5,6 +5,7 @@ import Branch from "../../models/branch.js";
 import { Customer, DeliveryPartner } from "../../models/user.js";
 import mongoose from "mongoose";
 
+// to create the order by user
 export const createOrder = async (req, reply) => {
   try {
     const {
@@ -22,7 +23,6 @@ export const createOrder = async (req, reply) => {
     console.log("📦 Incoming Order Request:", req.body);
 
     const customerData = await Customer.findById(userId);
-
     if (!customerData) {
       return reply.status(404).send({ message: "Customer not found" });
     }
@@ -40,13 +40,8 @@ export const createOrder = async (req, reply) => {
       country: address.country || "",
     };
 
-    // 1. Collect all unique branch IDs from items
     const uniqueBranchIds = [...new Set(items.map((item) => item.item.branch))];
-
-    // 2. Fetch all branch details in one query
     const branches = await Branch.find({ _id: { $in: uniqueBranchIds } });
-
-    // 3. Build pickupLocations per branch
     const pickupLocations = branches.map((branch) => ({
       branch: branch._id,
       latitude: branch.location.latitude,
@@ -54,6 +49,26 @@ export const createOrder = async (req, reply) => {
       address:
         branch.address || "No address available! You can contact support team",
     }));
+
+    // 🆕 Enhance each item by fetching variant quantity (unit)
+    const enhancedItems = await Promise.all(
+      items.map(async (item) => {
+        const productDoc = await Product.findById(item.item.product);
+        const variant = productDoc.variants.id(item.item.variantId);
+
+        return {
+          product: item.item.product,
+          variantId: item.item.variantId,
+          branch: item.item.branch,
+          name: item.item.name,
+          image: item.item.image,
+          count: item.count,
+          price: item.item.price,
+          itemTotal: item.item.price * item.count,
+          unit: variant?.quantity || "", // 🟢 Set unit like "1kg", "500g"
+        };
+      })
+    );
 
     const newOrder = new Order({
       customer: userId,
@@ -64,16 +79,7 @@ export const createOrder = async (req, reply) => {
       discount,
       couponCode,
       totalPrice,
-      items: items.map((item) => ({
-        product: item.item.product,
-        variantId: item.item.variantId,
-        branch: item.item.branch,
-        name: item.item.name,
-        image: item.item.image,
-        count: item.count,
-        price: item.item.price,
-        itemTotal: item.item.price * item.count,
-      })),
+      items: enhancedItems,
       deliveryLocation,
       pickupLocations,
     });
@@ -86,6 +92,7 @@ export const createOrder = async (req, reply) => {
   }
 };
 
+// the delivery parntewr confirm the order
 export const comfirmOrder = async (req, reply) => {
   try {
     const { orderId } = req.params;
@@ -116,6 +123,7 @@ export const comfirmOrder = async (req, reply) => {
     order.statusTimestamps.assignedAt = new Date();
 
     await order.save();
+    await sendOrderStatusNotification(order);
 
     if (req.server?.io) {
       req.server.io.to(orderId).emit("orderConfirmed", order);
@@ -131,6 +139,7 @@ export const comfirmOrder = async (req, reply) => {
   }
 };
 
+// the fc will update the order status
 export const updateOrderStatus = async (req, reply) => {
   try {
     const { orderId } = req.params;
@@ -156,6 +165,9 @@ export const updateOrderStatus = async (req, reply) => {
       return reply.status(404).send({ message: "Order not found" });
     }
 
+    // ✅ Send push notification
+    await sendOrderStatusNotification(order);
+
     return reply.send({ message: "Status updated", order });
   } catch (error) {
     console.error(error);
@@ -164,41 +176,6 @@ export const updateOrderStatus = async (req, reply) => {
       .send({ message: "Failed to update status", error });
   }
 };
-
-// export const updateOrderStatus = async (req, reply) => {
-//   try {
-//     const { orderId } = req.params;
-//     const { status, deliveryPersonLocation } = req.body;
-//     const { userId } = req.body;
-
-//     const deliveryPerson = await DeliveryPartner.findById(userId);
-//     if (!deliveryPerson) {
-//       return reply.ststus(404).send({ message: "Delviery person not found" });
-//     }
-//     const order = await Order.findById(orderId);
-//     if (!order) return reply.status(404).send({ message: "Order not found" });
-
-//     if (["cancelled", "delivered"].includes(order.status)) {
-//       return reply.status(400).send({ message: "ORder cannot be updated " });
-//     }
-
-//     if (order.deliveryPartner.toString() !== userId) {
-//       return reply.status(403).send({ message: "Unauthorized" });
-//     }
-
-//     order.status = status;
-//     order.deliveryPersonLocation = deliveryPersonLocation;
-//     await order.save();
-
-//     req.server.io.to(orderId).emit("LiveTrackingUpdates", order);
-//     return reply.send(order);
-//   } catch (error) {
-//     console.log(error);
-//     return reply
-//       .status(500)
-//       .send({ message: "Failed to update order status", error });
-//   }
-// };
 
 export const getOrder = async (req, reply) => {
   try {
@@ -430,33 +407,58 @@ function orderSummary(order) {
   };
 }
 
-function setStatusTimestamp(order, status) {
-  if (!order.statusTimestamps) order.statusTimestamps = {};
-  const now = new Date();
-  switch (status) {
-    case "pending":
-      order.statusTimestamps.confirmedAt = now;
-      break;
-    case "packing":
-      order.statusTimestamps.packedAt = null; // reset packedAt if going back
-      break;
-    case "packed":
-      order.statusTimestamps.packedAt = now;
-      break;
-    case "arriving":
-      order.statusTimestamps.arrivingAt = now;
-      break;
-    case "delivered":
-      order.statusTimestamps.deliveredAt = now;
-      break;
-    case "cancelled":
-      order.statusTimestamps.cancelledAt = now;
-      break;
-    // Add more as needed
-    default:
-      break;
+export const sendOrderStatusNotification = async (order) => {
+  try {
+    const customer = await Customer.findById(order.customer);
+    console.log("📨 Customer token:", customer?.fcmToken);
+
+    if (!customer?.fcmToken) return;
+
+    const title = "Order Update";
+    const body = `Your order status is now: ${order.status.toUpperCase()}`;
+
+    await sendNotification(customer.fcmToken, title, body);
+  } catch (err) {
+    console.error("❌ Failed to send order status notification:", err.message);
   }
-}
+};
+
+// fcmService.js
+import fetch from "node-fetch";
+import { getAccessToken } from "../notication/fcmService.js";
+import Product from "../../models/products.js";
+
+export const sendNotification = async (token, title, body) => {
+  const accessToken = await getAccessToken(); // from service account
+
+  const message = {
+    message: {
+      token,
+      notification: { title, body },
+    },
+  };
+
+  const response = await fetch(
+    "https://fcm.googleapis.com/v1/projects/surati-mart/messages:send",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(message),
+    }
+  );
+
+  const data = await response.json();
+  if (!response.ok) {
+    console.error("FCM Error:", data);
+    throw new Error(data.error?.message || "Failed to send notification");
+  }
+
+  return data;
+};
+
 // ===============================================================
 
 export const updateItemPackingStatus = async (req, reply) => {
@@ -533,11 +535,14 @@ export const updateItemPackingStatus = async (req, reply) => {
 export const cancelOrderItem = async (req, reply) => {
   try {
     const { orderId, itemId } = req.params;
+    const { reason } = req.body;
 
     const order = await Order.findById(orderId);
     if (!order) return reply.status(404).send({ message: "Order not found" });
 
-    const item = order.items.find((i) => i._id.toString() === itemId);
+    const trimmedItemId = itemId.trim();
+    const item = order.items.find((i) => i._id.toString() === trimmedItemId);
+
     if (!item)
       return reply.status(404).send({ message: "Item not found in order" });
 
@@ -545,10 +550,11 @@ export const cancelOrderItem = async (req, reply) => {
       return reply.status(400).send({ message: "Item already cancelled" });
     }
 
-    // Mark item as cancelled
+    // Mark item as cancelled and store reason
     item.status = "cancelled";
+    item.cancellationReason = reason || "Not specified";
 
-    // Recalculate totalPrice
+    // Recalculate total price
     const activeItems = order.items.filter((i) => i.status !== "cancelled");
     const newItemsTotal = activeItems.reduce((sum, i) => sum + i.itemTotal, 0);
 
@@ -576,6 +582,7 @@ export const getPendingOrdersForBranch = async (req, reply) => {
   try {
     const pendingStatuses = [
       "pending",
+      "confirmed",
       "processing",
       "packing",
       "packed",
