@@ -123,7 +123,7 @@ export const comfirmOrder = async (req, reply) => {
     order.statusTimestamps.assignedAt = new Date();
 
     await order.save();
-    await sendOrderStatusNotification(order);
+    // await sendOrderStatusNotification(order);
 
     if (req.server?.io) {
       req.server.io.to(orderId).emit("orderConfirmed", order);
@@ -166,7 +166,7 @@ export const updateOrderStatus = async (req, reply) => {
     }
 
     // ✅ Send push notification
-    await sendOrderStatusNotification(order);
+    // await sendOrderStatusNotification(order);
 
     return reply.send({ message: "Status updated", order });
   } catch (error) {
@@ -407,57 +407,57 @@ function orderSummary(order) {
   };
 }
 
-export const sendOrderStatusNotification = async (order) => {
-  try {
-    const customer = await Customer.findById(order.customer);
-    console.log("📨 Customer token:", customer?.fcmToken);
+// export const sendOrderStatusNotification = async (order) => {
+//   try {
+//     const customer = await Customer.findById(order.customer);
+//     console.log("📨 Customer token:", customer?.fcmToken);
 
-    if (!customer?.fcmToken) return;
+//     if (!customer?.fcmToken) return;
 
-    const title = "Order Update";
-    const body = `Your order status is now: ${order.status.toUpperCase()}`;
+//     const title = "Order Update";
+//     const body = `Your order status is now: ${order.status.toUpperCase()}`;
 
-    await sendNotification(customer.fcmToken, title, body);
-  } catch (err) {
-    console.error("❌ Failed to send order status notification:", err.message);
-  }
-};
+//     await sendNotification(customer.fcmToken, title, body);
+//   } catch (err) {
+//     console.error("❌ Failed to send order status notification:", err.message);
+//   }
+// };
 
 // fcmService.js
-import fetch from "node-fetch";
-import { getAccessToken } from "../notication/fcmService.js";
-import Product from "../../models/products.js";
+// import fetch from "node-fetch";
+// import { getAccessToken } from "../notication/fcmService.js";
+// import Product from "../../models/products.js";
 
-export const sendNotification = async (token, title, body) => {
-  const accessToken = await getAccessToken(); // from service account
+// export const sendNotification = async (token, title, body) => {
+//   const accessToken = await getAccessToken(); // from service account
 
-  const message = {
-    message: {
-      token,
-      notification: { title, body },
-    },
-  };
+//   const message = {
+//     message: {
+//       token,
+//       notification: { title, body },
+//     },
+//   };
 
-  const response = await fetch(
-    "https://fcm.googleapis.com/v1/projects/surati-mart/messages:send",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(message),
-    }
-  );
+//   const response = await fetch(
+//     "https://fcm.googleapis.com/v1/projects/surati-mart/messages:send",
+//     {
+//       method: "POST",
+//       headers: {
+//         Authorization: `Bearer ${accessToken}`,
+//         "Content-Type": "application/json",
+//       },
+//       body: JSON.stringify(message),
+//     }
+//   );
 
-  const data = await response.json();
-  if (!response.ok) {
-    console.error("FCM Error:", data);
-    throw new Error(data.error?.message || "Failed to send notification");
-  }
+//   const data = await response.json();
+//   if (!response.ok) {
+//     console.error("FCM Error:", data);
+//     throw new Error(data.error?.message || "Failed to send notification");
+//   }
 
-  return data;
-};
+//   return data;
+// };
 
 // ===============================================================
 
