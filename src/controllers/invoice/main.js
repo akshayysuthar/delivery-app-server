@@ -75,7 +75,7 @@ export default async function invoiceHandler(request, reply) {
 
     // --- COMPANY HEADER ---
     const company = {
-      name: "My Company Pvt Ltd",
+      name: "Surati's Mart",
       address: "123 Business St, City",
       phone: "+1234567890",
       email: "contact@mycompany.com",
@@ -197,14 +197,33 @@ export default async function invoiceHandler(request, reply) {
     y += 16;
     doc.setFontSize(F.text);
     let totalQty = 0;
-    activeItems.forEach((i) => {
+    const rowHeight = 16;
+    const bottomMargin = 60; // Space to leave at bottom for summary/footer
+
+    activeItems.forEach((i, idx) => {
+      // Check if we need a new page
+      if (y + rowHeight + bottomMargin > doc.internal.pageSize.getHeight()) {
+        doc.addPage();
+        y = 40; // Reset y for new page, adjust as needed
+
+        // Redraw table header on new page
+        doc.setFontSize(F.label);
+        doc.text("Item", colItem, y);
+        doc.text("Unit", colUnit, y);
+        doc.text("Qty", colQty, y, { align: "right" });
+        doc.text("Price", colPrice, y, { align: "right" });
+        doc.text("Total", colTotal, y, { align: "right" });
+        y += rowHeight;
+        doc.setFontSize(F.text);
+      }
+
       totalQty += i.count;
       doc.text(i.name || "N/A", colItem, y, { maxWidth: 180 });
       doc.text(i.unit || "N/A", colUnit, y);
       doc.text(String(i.count), colQty, y, { align: "right" });
       doc.text(formatCurrency(i.price), colPrice, y, { align: "right" });
       doc.text(formatCurrency(i.itemTotal), colTotal, y, { align: "right" });
-      y += 16;
+      y += rowHeight;
     });
 
     // Separator line

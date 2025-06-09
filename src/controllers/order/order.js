@@ -2,6 +2,7 @@
 
 import Order from "../../models/order.js";
 import Branch from "../../models/branch.js";
+import Product from "../../models/products.js"; // <-- Add this line
 import { Customer, DeliveryPartner } from "../../models/user.js";
 import mongoose from "mongoose";
 
