@@ -22,6 +22,7 @@ import { Address } from "./address.js";
 import FeaturedSection from "./featuredSection.js";
 import Slots from "./slot.js";
 import VisualConfig from "./visual.js";
+import CategorySection from "./CategorySection.js";
 
 export {
   Order,
@@ -31,6 +32,7 @@ export {
   Picker,
   BranchAdmin,
   FeaturedSection,
+  CategorySection,
   Branch,
   Category,
   Subcategory,

@@ -778,8 +778,16 @@ export const updateOrderStatusByDeliveryPartner = async (req, reply) => {
     const { orderId } = req.params;
     const { status, paymentStatus, paymentMethod, userId } = req.body;
 
+    console.log(status, paymentMethod, paymentStatus, userId);
+
     // Only allow delivery partner to set these statuses
-    const allowedStatuses = ["arriving", "delivered", "cancelled"];
+    const allowedStatuses = [
+      "arriving",
+      "delivered",
+      "cancelled",
+      "upi",
+      "cash",
+    ];
     if (!allowedStatuses.includes(status)) {
       return reply.status(400).send({ message: "Invalid status update" });
     }

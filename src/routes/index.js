@@ -28,5 +28,6 @@ export const registerRoutes = async (fastify) => {
   fastify.register(loggingRoutes, { prefix });
   fastify.register(offerRoutes, { prefix: prefix });
   fastify.register(supportRoutes, { prefix: prefix });
+  
   // fastify.register(notificationRoutes, { prefix: prefix });
 };

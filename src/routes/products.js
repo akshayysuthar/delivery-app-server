@@ -5,6 +5,7 @@ import {
   getSubcategoriesByCategoryId,
 } from "../controllers/product/categories.js";
 import {
+  getCategorySections,
   getFeaturedSections,
   getProductById,
   getProductsByCategoryId,
@@ -27,4 +28,5 @@ export const productRoutes = async (fastify, options) => {
   fastify.get("/product/id/:productId", getProductById); // <-- Add this line
   fastify.get("/products/suggestions", getSuggestedProducts);
   fastify.get("/products/featured-sections", getFeaturedSections);
+  fastify.get("/products/category-sections", getCategorySections);
 };

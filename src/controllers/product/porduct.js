@@ -1,3 +1,4 @@
+import CategorySection from "../../models/CategorySection.js";
 import FeaturedSection from "../../models/featuredSection.js";
 import Product from "../../models/products.js";
 import mongoose from "mongoose";
@@ -148,5 +149,20 @@ export const getFeaturedSections = async (req, reply) => {
     return reply
       .status(500)
       .send({ message: "Failed to fetch featured sections", error: err });
+  }
+};
+
+export const getCategorySections = async (req, reply) => {
+  try {
+    const sections = await CategorySection.find()
+      .populate("categories") // populates full category/subcategory info
+      .sort({ createdAt: -1 });
+
+    return reply.send({ sections });
+  } catch (err) {
+    console.error("❌ Failed to fetch category sections", err);
+    return reply
+      .status(500)
+      .send({ message: "Failed to fetch category sections", error: err });
   }
 };
