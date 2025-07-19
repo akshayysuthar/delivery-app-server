@@ -68,11 +68,13 @@ const orderSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         required: true,
       },
-      branch: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Branch",
-        required: true,
-      },
+     branch: [
+        {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Branch",
+          required: true,
+        },
+      ],
       name: String,
       image: String,
       count: { type: Number, required: true },
