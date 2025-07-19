@@ -41,7 +41,11 @@ export const createOrder = async (req, reply) => {
       country: address.country || "",
     };
 
-    const uniqueBranchIds = [...new Set(items.map((item) => item.item.branch))];
+      const uniqueBranchIds = [
+      ...new Set(
+        items.map((item) => mongoose.Types.ObjectId(item.item.branch))
+      ),
+    ];
     const branches = await Branch.find({ _id: { $in: uniqueBranchIds } });
     const pickupLocations = branches.map((branch) => ({
       branch: branch._id,
