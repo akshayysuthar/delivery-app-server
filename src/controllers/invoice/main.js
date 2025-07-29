@@ -127,7 +127,7 @@ export default async function invoiceHandler(request, reply) {
       // "Tax%",
       "Total",
     ];
-    const colWidths = [40, 200, 40, 60, 60];
+    const colWidths = [40, 300, 40, 60, 60];
     let x = M.left;
     headers.forEach((h, i) => {
       doc.setFontSize(F.label).text(h, x, y);
@@ -168,6 +168,8 @@ export default async function invoiceHandler(request, reply) {
     const totalItems = activeItems.length;
     const totalQty = activeItems.reduce((sum, i) => sum + i.count, 0);
 
+    y += 25;
+
     doc.text(`Total Items:`, M.left, y);
     doc.text(String(totalItems), M.left + 120, y);
 
@@ -183,7 +185,8 @@ export default async function invoiceHandler(request, reply) {
     const discount = order.discount?.amt ? parseFloat(order.discount.amt) : 0;
     const grandTotal = subtotal + deliveryCharge + handlingCharge - discount;
 
-    y += 20;
+    y += 35;
+
     doc.setFont("helvetica", "bold").setFontSize(F.label);
     doc.text("Order Summary", M.left, y);
     y += 16;
