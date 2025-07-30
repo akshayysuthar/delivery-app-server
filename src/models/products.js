@@ -7,9 +7,24 @@ const variantSchema = new mongoose.Schema({
   stock: { type: Number, default: 0 },
   available: { type: Boolean, default: true },
   sku: { type: String, unique: true }, // Unique identifier for variant
+  purchasePrice: { type: String },
+
+  // ✅ Extend: new fields from raw SKU data
+  name: { type: String },
+  articleNumber: { type: String },
+  savePrice: { type: String },
+  savingPercentage: { type: Number },
+  maxQuantity: { type: String },
+  variantText: { type: String },
+  variantTextValue: { type: String },
+  variantInfoTxtValue: { type: String },
+  variantType: { type: String },
+  tags: [String],
 });
 
 const productSchema = new mongoose.Schema({
+  buyable: { type: Boolean },
+  manufacturer: { type: String },
   name: { type: String, required: true },
   desc: { type: String },
   image: { type: String, required: true },
