@@ -1,657 +1,151 @@
 import ExcelJS from "exceljs";
 import Order from "../../models/order.js";
 
-export async function exportAnalytics(request, reply) {
+export default async function exportAnalytics(req, reply) {
   try {
-    const { startDate, endDate } = request.query;
+    const { from, to } = req.query;
 
-    // Prepare date filter
     const dateFilter = {};
-    if (startDate) dateFilter.$gte = new Date(startDate);
-    if (endDate) dateFilter.$lte = new Date(endDate);
+    if (from) dateFilter.$gte = new Date(from);
+    if (to) dateFilter.$lte = new Date(to);
 
-    // Current day boundaries (00:00 to 23:59:59.999)
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
+    const orders = await Order.find({
+      ...(from || to ? { createdAt: dateFilter } : {}),
+    })
+      .populate("customer")
+      .populate("items.branch")
+      .populate("items.product")
+      .populate("deliveryPartner");
 
-    // Build matchStage with OR: (date in range) OR (date is today)
-    const matchStage = {};
-    if (startDate || endDate) {
-      matchStage.$or = [
-        { createdAt: dateFilter }, // existing date range
-        { createdAt: { $gte: todayStart, $lte: todayEnd } }, // today data
-      ];
-    } else {
-      // If no startDate or endDate, just filter for today (if you want)
-      // Or no filter at all if you want all data
-      // Assuming you want all data including today, no filter:
-      // To only get today if no filter, uncomment below:
-      // matchStage.createdAt = { $gte: todayStart, $lte: todayEnd };
-    }
-
-    const rawOrders = await Order.find(matchStage)
-      .populate("customer", "name phone")
-      .populate("items.branch", "name code")
-      .populate("pickupLocations.branch", "name code ")
-      .select(
-        "orderId createdAt totalPrice payment.method payment.status deliveryCharge handlingCharge savings status deliveryLocation deliveryAddress pickupLocations discount statusTimestamps slot items"
-      )
-      .lean();
-
-    const slotRows = rawOrders.map((order) => ({
-      orderId: order.orderId,
-      slotId: order.slot?.id || "N/A",
-      slotLabel: order.slot?.label || "N/A",
-      slotStartTime: order.slot?.startTime || "N/A",
-      slotEndTime: order.slot?.endTime || "N/A",
-      slotDate: order.slot?.date || "N/A",
-    }));
-
-    const itemRows = [];
-    rawOrders.forEach((order) => {
-      order.items?.forEach((item) => {
-        itemRows.push({
-          orderId: order.orderId,
-          branchCode: item.branch?.code || "N/A",
-          productId: item.product?.toString() || "N/A",
-          productName: item.name || "N/A",
-          quantity: item.count || 0,
-          unit: item.unit || "N/A",
-          price: item.price || 0,
-          itemTotal: item.itemTotal || 0,
-        });
-      });
-    });
-
-    const pickupRows = [];
-    rawOrders.forEach((order) => {
-      order.pickupLocations?.forEach((pickup) => {
-        pickupRows.push({
-          orderId: order.orderId,
-          branchName: pickup.branch?.name || "N/A",
-          branchCode: pickup.branch?.code || "N/A",
-          latitude: pickup.latitude || "N/A",
-          longitude: pickup.longitude || "N/A",
-          address: pickup.address || "N/A",
-        });
-      });
-    });
-
-    const orderRows = rawOrders.map((order) => {
-      const pickup = order.pickupLocations?.[0] || {};
-
-      return {
-        orderId: order.orderId,
-        customerName: order.customer?.name || "N/A",
-        customerPhone: order.customer?.phone || "N/A",
-
-        // Multiple branches may be involved in items — we'll collect names
-        branchNames:
-          order.items
-            ?.map((item) => item.branch?.code)
-            .filter(Boolean)
-            .join(", ") || "N/A",
-
-        slotId: order.slot?.id || "N/A",
-        slotLabel: order.slot?.label || "N/A",
-        slotStartTime: order.slot?.startTime || "N/A",
-        slotEndTime: order.slot?.endTime || "N/A",
-        slotDate: order.slot?.date || "N/A",
-
-        createdAt: new Date(order.createdAt).toLocaleString("en-IN", {
-          timeZone: "Asia/Kolkata",
-        }),
-
-        confirmedAt: order.statusTimestamps?.confirmedAt
-          ? new Date(order.statusTimestamps.confirmedAt).toLocaleString(
-              "en-IN",
-              {
-                timeZone: "Asia/Kolkata",
-              }
-            )
-          : "N/A",
-        packedAt: order.statusTimestamps?.packedAt
-          ? new Date(order.statusTimestamps.packedAt).toLocaleString("en-IN", {
-              timeZone: "Asia/Kolkata",
-            })
-          : "N/A",
-        arrivingAt: order.statusTimestamps?.arrivingAt
-          ? new Date(order.statusTimestamps.arrivingAt).toLocaleString(
-              "en-IN",
-              {
-                timeZone: "Asia/Kolkata",
-              }
-            )
-          : "N/A",
-        deliveredAt: order.statusTimestamps?.deliveredAt
-          ? new Date(order.statusTimestamps.deliveredAt).toLocaleString(
-              "en-IN",
-              {
-                timeZone: "Asia/Kolkata",
-              }
-            )
-          : "N/A",
-        cancelledAt: order.statusTimestamps?.cancelledAt
-          ? new Date(order.statusTimestamps.cancelledAt).toLocaleString(
-              "en-IN",
-              {
-                timeZone: "Asia/Kolkata",
-              }
-            )
-          : "N/A",
-
-        paymentMethod: order.payment?.method || "N/A",
-        paymentStatus: order.payment?.status || "N/A",
-
-        totalPrice: order.totalPrice || 0,
-        deliveryFee: order.deliveryCharge || 0,
-        handlingFee: order.handlingCharge || 0,
-        savings: order.savings || 0,
-
-        status: order.status || "N/A",
-
-        deliveryLatitude: order.deliveryLocation?.latitude || "N/A",
-        deliveryLongitude: order.deliveryLocation?.longitude || "N/A",
-        deliveryAddress: order.deliveryAddress?.address || "N/A",
-
-        pickupLatitude: pickup.latitude || "N/A",
-        pickupLongitude: pickup.longitude || "N/A",
-        pickupAddress: pickup.address || "N/A",
-        pickupBranch: pickup.branch?.name || "N/A",
-
-        discountType: order.discount?.type || "N/A",
-        discountAmount: order.discount?.amt || "N/A",
-      };
-    });
-
-    // Run all aggregations with this matchStage
-    const [
-      ordersByDay,
-      ordersByMonth,
-      ordersBySlot,
-      ordersByPaymentMethod,
-      sellerProductAggregation,
-      branchStats,
-    ] = await Promise.all([
-      Order.aggregate([
-        { $match: matchStage },
-        {
-          $group: {
-            _id: {
-              year: { $year: "$createdAt" },
-              month: { $month: "$createdAt" },
-              day: { $dayOfMonth: "$createdAt" },
-            },
-            totalOrders: { $sum: 1 },
-            canceledOrders: {
-              $sum: {
-                $cond: [{ $eq: ["$status", "cancelled"] }, 1, 0],
-              },
-            },
-            totalRevenue: { $sum: "$totalPrice" },
-            totalDeliveryFee: { $sum: { $ifNull: ["$deliveryFee", 0] } },
-            totalHandlingFee: { $sum: { $ifNull: ["$handlingFee", 0] } },
-          },
-        },
-        { $sort: { "_id.year": 1, "_id.month": 1, "_id.day": 1 } },
-      ]),
-      Order.aggregate([
-        { $match: matchStage },
-        {
-          $group: {
-            _id: {
-              year: { $year: "$createdAt" },
-              month: { $month: "$createdAt" },
-            },
-            totalOrders: { $sum: 1 },
-            canceledOrders: {
-              $sum: {
-                $cond: [{ $eq: ["$status", "cancelled"] }, 1, 0],
-              },
-            },
-            totalRevenue: { $sum: "$totalPrice" },
-            totalDeliveryFee: { $sum: { $ifNull: ["$deliveryFee", 0] } },
-            totalHandlingFee: { $sum: { $ifNull: ["$handlingFee", 0] } },
-          },
-        },
-        { $sort: { "_id.year": 1, "_id.month": 1 } },
-      ]),
-      Order.aggregate([
-        { $match: matchStage },
-        {
-          $group: {
-            _id: "$slot.label",
-            totalOrders: { $sum: 1 },
-            totalRevenue: { $sum: "$totalPrice" },
-            canceledOrders: {
-              $sum: {
-                $cond: [{ $eq: ["$status", "cancelled"] }, 1, 0],
-              },
-            },
-          },
-        },
-        { $sort: { _id: 1 } },
-      ]),
-      Order.aggregate([
-        { $match: matchStage },
-        {
-          $group: {
-            _id: "$payment.method",
-            totalOrders: { $sum: 1 },
-            totalRevenue: { $sum: "$totalPrice" },
-            canceledOrders: {
-              $sum: {
-                $cond: [{ $eq: ["$status", "cancelled"] }, 1, 0],
-              },
-            },
-          },
-        },
-      ]),
-      Order.aggregate([
-        { $match: matchStage },
-        { $unwind: "$items" },
-        {
-          $lookup: {
-            from: "products",
-            localField: "items.product",
-            foreignField: "_id",
-            as: "productDetails",
-          },
-        },
-        { $unwind: "$productDetails" },
-        {
-          $group: {
-            _id: {
-              seller: { $ifNull: ["$productDetails.seller", null] },
-              product: { $ifNull: ["$productDetails._id", null] },
-              productName: {
-                $ifNull: ["$productDetails.name", "Unknown Product"],
-              },
-            },
-            totalQuantitySold: { $sum: "$items.count" },
-            totalRevenue: { $sum: "$items.itemTotal" },
-          },
-        },
-
-        {
-          $group: {
-            _id: "$_id.seller",
-            totalQuantitySold: { $sum: "$totalQuantitySold" },
-            totalRevenue: { $sum: "$totalRevenue" },
-            products: {
-              $push: {
-                productId: "$_id.product",
-                productName: "$_id.productName",
-                quantitySold: "$totalQuantitySold",
-                revenue: "$totalRevenue",
-              },
-            },
-          },
-        },
-        {
-          $lookup: {
-            from: "sellers",
-            localField: "_id",
-            foreignField: "_id",
-            as: "sellerDetails",
-          },
-        },
-        { $unwind: "$sellerDetails" },
-        {
-          $project: {
-            _id: 0,
-            sellerId: "$sellerDetails._id",
-            sellerName: { $ifNull: ["$sellerDetails.name", "Unknown Seller"] },
-            totalQuantitySold: 1,
-            totalRevenue: 1,
-            products: 1,
-          },
-        },
-      ]),
-      Order.aggregate([
-        { $match: matchStage },
-        {
-          $group: {
-            _id: "$branch",
-            totalOrders: { $sum: 1 },
-            canceledOrders: {
-              $sum: {
-                $cond: [{ $eq: ["$status", "cancelled"] }, 1, 0],
-              },
-            },
-            totalRevenue: { $sum: "$totalPrice" },
-            totalDeliveryFee: { $sum: { $ifNull: ["$deliveryFee", 0] } },
-            totalHandlingFee: { $sum: { $ifNull: ["$handlingFee", 0] } },
-          },
-        },
-        {
-          $lookup: {
-            from: "branches",
-            localField: "_id",
-            foreignField: "_id",
-            as: "branchDetails",
-          },
-        },
-        { $unwind: "$branchDetails" },
-        {
-          $project: {
-            _id: 0,
-            branchId: "$branchDetails._id",
-            branchName: "$branchDetails.name",
-            totalOrders: 1,
-            canceledOrders: 1,
-            totalRevenue: 1,
-            totalDeliveryFee: 1,
-            totalHandlingFee: 1,
-          },
-        },
-      ]),
-    ]);
-
-    // Create workbook
     const workbook = new ExcelJS.Workbook();
 
-    // Helper function to add a worksheet and data
-    const addSheet = (name, headers, rows) => {
-      const sheet = workbook.addWorksheet(name);
-      sheet.columns = headers.map((header) => ({ header, key: header }));
-      sheet.addRows(rows);
-    };
+    // 1. Orders by Area
+    const areaSheet = workbook.addWorksheet("Orders by Area");
+    areaSheet.columns = [
+      { header: "Area", key: "area", width: 30 },
+      { header: "Total Orders", key: "count", width: 15 },
+      { header: "Total Value", key: "value", width: 20 },
+    ];
 
-    addSheet(
-      "Slot Details",
-      [
-        "orderId",
-        "slotId",
-        "slotLabel",
-        "slotStartTime",
-        "slotEndTime",
-        "slotDate",
-      ],
-      slotRows
-    );
-
-    addSheet(
-      "Order Items",
-      [
-        "orderId",
-        "branchCode",
-        "productId",
-        "productName",
-        "quantity",
-        "unit",
-        "price",
-        "itemTotal",
-      ],
-      itemRows
-    );
-
-    addSheet(
-      "Pickup Branches",
-      [
-        "orderId",
-        "branchName",
-        "branchCode",
-        "latitude",
-        "longitude",
-        "address",
-      ],
-      pickupRows
-    );
-
-    addSheet(
-      "Orders Data",
-      [
-        "orderId",
-        "customerName",
-        "customerPhone",
-        "branch",
-        "slotId",
-        "slotLabel",
-        "slotStartTime",
-        "slotEndTime",
-        "slotDate",
-        "createdAt",
-        "confirmedAt",
-        "packedAt",
-        "arrivingAt",
-        "deliveredAt",
-        "cancelledAt",
-        "paymentMethod",
-        "paymentStatus",
-        "totalPrice",
-        "deliveryFee",
-        "handlingFee",
-        "savings",
-        "status",
-        "deliveryLatitude",
-        "deliveryLongitude",
-        "deliveryAddress",
-        "pickupLatitude",
-        "pickupLongitude",
-        "pickupAddress",
-        "discountType",
-        "discountAmount",
-      ],
-      orderRows
-    );
-
-    // Add all sheets
-    addSheet(
-      "Orders by Day",
-      [
-        "year",
-        "month",
-        "day",
-        "totalOrders",
-        "canceledOrders",
-        "totalRevenue",
-        "totalDeliveryFee",
-        "totalHandlingFee",
-      ],
-      ordersByDay.map((item) => ({
-        year: item._id.year,
-        month: item._id.month,
-        day: item._id.day,
-        totalOrders: item.totalOrders,
-        canceledOrders: item.canceledOrders,
-        totalRevenue: item.totalRevenue,
-        totalDeliveryFee: item.totalDeliveryFee,
-        totalHandlingFee: item.totalHandlingFee,
-      }))
-    );
-
-    addSheet(
-      "Orders by Month",
-      [
-        "year",
-        "month",
-        "totalOrders",
-        "canceledOrders",
-        "totalRevenue",
-        "totalDeliveryFee",
-        "totalHandlingFee",
-      ],
-      ordersByMonth.map((item) => ({
-        year: item._id.year,
-        month: item._id.month,
-        totalOrders: item.totalOrders,
-        canceledOrders: item.canceledOrders,
-        totalRevenue: item.totalRevenue,
-        totalDeliveryFee: item.totalDeliveryFee,
-        totalHandlingFee: item.totalHandlingFee,
-      }))
-    );
-
-    addSheet(
-      "Orders by Slot",
-      ["slot", "totalOrders", "canceledOrders", "totalRevenue"],
-      ordersBySlot.map((item) => ({
-        slot: item._id,
-        totalOrders: item.totalOrders,
-        canceledOrders: item.canceledOrders,
-        totalRevenue: item.totalRevenue,
-      }))
-    );
-
-    addSheet(
-      "Orders by Payment",
-      ["paymentMethod", "totalOrders", "canceledOrders", "totalRevenue"],
-      ordersByPaymentMethod.map((item) => ({
-        paymentMethod: item._id,
-        totalOrders: item.totalOrders,
-        canceledOrders: item.canceledOrders,
-        totalRevenue: item.totalRevenue,
-      }))
-    );
-
-    addSheet(
-      "Branch Stats",
-      [
-        "branchName",
-        "totalOrders",
-        "canceledOrders",
-        "totalRevenue",
-        "totalDeliveryFee",
-        "totalHandlingFee",
-      ],
-      branchStats
-    );
-    // Seller sales summary: total quantity and revenue per seller (simplified)
-    const sellerSalesSummary = await Order.aggregate([
-      { $match: matchStage },
-      { $unwind: "$items" },
-      {
-        $lookup: {
-          from: "products",
-          localField: "items.product",
-          foreignField: "_id",
-          as: "productDetails",
-        },
-      },
-      { $unwind: "$productDetails" },
-      {
-        $group: {
-          _id: "$productDetails.seller",
-          totalQuantitySold: { $sum: "$items.count" },
-          totalRevenue: { $sum: "$items.itemTotal" },
-        },
-      },
-      {
-        $lookup: {
-          from: "sellers",
-          localField: "_id",
-          foreignField: "_id",
-          as: "sellerDetails",
-        },
-      },
-      { $unwind: "$sellerDetails" },
-      {
-        $project: {
-          _id: 0,
-          sellerId: "$sellerDetails._id",
-          sellerName: "$sellerDetails.name",
-          totalQuantitySold: 1,
-          totalRevenue: 1,
-        },
-      },
-    ]);
-
-    // Branch sales summary: total orders, revenue, fees per branch (simplified)
-    const branchSalesSummary = await Order.aggregate([
-      { $match: matchStage },
-      {
-        $group: {
-          _id: "$branch",
-          totalOrders: { $sum: 1 },
-          canceledOrders: {
-            $sum: {
-              $cond: [{ $eq: ["$status", "cancelled"] }, 1, 0],
-            },
-          },
-          totalRevenue: { $sum: "$totalPrice" },
-          totalDeliveryFee: { $sum: { $ifNull: ["$deliveryFee", 0] } },
-          totalHandlingFee: { $sum: { $ifNull: ["$handlingFee", 0] } },
-        },
-      },
-      {
-        $lookup: {
-          from: "branches",
-          localField: "_id",
-          foreignField: "_id",
-          as: "branchDetails",
-        },
-      },
-      { $unwind: "$branchDetails" },
-      {
-        $project: {
-          _id: 0,
-          branchId: "$branchDetails._id",
-          branchName: "$branchDetails.name",
-          totalOrders: 1,
-          canceledOrders: 1,
-          totalRevenue: 1,
-          totalDeliveryFee: 1,
-          totalHandlingFee: 1,
-        },
-      },
-    ]);
-
-    // Seller Product Report: one row per product
-    const sellerProductRows = [];
-    sellerProductAggregation.forEach((seller) => {
-      seller.products.forEach((product) => {
-        sellerProductRows.push({
-          sellerName: seller.sellerName,
-          productName: product.productName,
-          quantitySold: product.quantitySold,
-          revenue: product.revenue,
-        });
+    const areaMap = new Map();
+    for (const order of orders) {
+      const area = order.customer?.address?.area || "Unknown";
+      const existing = areaMap.get(area) || { count: 0, value: 0 };
+      areaMap.set(area, {
+        count: existing.count + 1,
+        value: existing.value + (order.totalPrice || 0),
       });
-    });
-    // Add Seller Sales Summary sheet
-    addSheet(
-      "Seller Sales Summary",
-      ["sellerName", "totalQuantitySold", "totalRevenue"],
-      sellerSalesSummary.map((seller) => ({
-        sellerName: seller.sellerName,
-        totalQuantitySold: seller.totalQuantitySold,
-        totalRevenue: seller.totalRevenue,
-      }))
+    }
+    areaMap.forEach((v, k) =>
+      areaSheet.addRow({ area: k, count: v.count, value: v.value })
     );
 
-    // Add Branch Sales Summary sheet
-    addSheet(
-      "Branch Sales Summary",
-      [
-        "branchName",
-        "totalOrders",
-        "canceledOrders",
-        "totalRevenue",
-        "totalDeliveryFee",
-        "totalHandlingFee",
-      ],
-      branchSalesSummary.map((branch) => ({
-        branchName: branch.branchName,
-        totalOrders: branch.totalOrders,
-        canceledOrders: branch.canceledOrders,
-        totalRevenue: branch.totalRevenue,
-        totalDeliveryFee: branch.totalDeliveryFee,
-        totalHandlingFee: branch.totalHandlingFee,
-      }))
+    // 2. All Orders
+    const allSheet = workbook.addWorksheet("All Orders");
+    allSheet.columns = [
+      { header: "Order ID", key: "orderId", width: 15 },
+      { header: "Customer", key: "customer", width: 20 },
+      { header: "Status", key: "status", width: 15 },
+      { header: "Payment Method", key: "paymentMethod", width: 15 },
+      { header: "Delivery Charge", key: "delivery", width: 15 },
+      { header: "Handling Charge", key: "handling", width: 15 },
+      { header: "Total", key: "total", width: 15 },
+      { header: "Created At", key: "createdAt", width: 20 },
+    ];
+    orders.forEach((o) =>
+      allSheet.addRow({
+        orderId: o.orderId,
+        customer: o.customer?.name || "N/A",
+        status: o.status,
+        paymentMethod: o.payment?.method,
+        delivery: o.deliveryCharge || 0,
+        handling: o.handlingCharge || 0,
+        total: o.totalPrice,
+        createdAt: o.createdAt.toLocaleString(),
+      })
     );
 
-    addSheet(
-      "Seller Products",
-      ["sellerName", "productName", "quantitySold", "revenue"],
-      sellerProductRows
+    // 3. Orders by Payment Method
+    const paymentSheet = workbook.addWorksheet("Orders by Payment");
+    paymentSheet.columns = [
+      { header: "Payment Method", key: "method", width: 20 },
+      { header: "Total Orders", key: "count", width: 15 },
+      { header: "Total Value", key: "value", width: 20 },
+    ];
+    const paymentMap = new Map();
+    for (const o of orders) {
+      const method = o.payment?.method || "Unknown";
+      const prev = paymentMap.get(method) || { count: 0, value: 0 };
+      paymentMap.set(method, {
+        count: prev.count + 1,
+        value: prev.value + (o.totalPrice || 0),
+      });
+    }
+    paymentMap.forEach((v, k) =>
+      paymentSheet.addRow({ method: k, count: v.count, value: v.value })
     );
 
-    // Write Excel file and send response
+    // 4. Order Items by Seller
+    const sellerSheet = workbook.addWorksheet("Order Items by Seller");
+    sellerSheet.columns = [
+      { header: "Seller", key: "seller", width: 20 },
+      { header: "Item", key: "name", width: 25 },
+      { header: "Qty", key: "qty", width: 10 },
+      { header: "Unit", key: "unit", width: 10 },
+      { header: "Price", key: "price", width: 15 },
+      { header: "Purchase Price", key: "purchasePrice", width: 15 },
+      { header: "Total", key: "total", width: 15 },
+    ];
+    for (const o of orders) {
+      for (const item of o.items || []) {
+        const product = item.product;
+        const variant = product?.variants?.find(
+          (v) => v._id.toString() === item.variantId.toString()
+        );
+        sellerSheet.addRow({
+          seller: product?.seller || "N/A",
+          name: item.name,
+          qty: item.count,
+          unit: item.unit,
+          price: item.price,
+          purchasePrice: variant?.purchasePrice || "N/A",
+          total: item.itemTotal,
+        });
+      }
+    }
+
+    // 5. Order Items by Seller + Branch
+    const sellerBranchSheet = workbook.addWorksheet("Seller + Branch Items");
+    sellerBranchSheet.columns = [
+      { header: "Seller", key: "seller", width: 20 },
+      { header: "Branch", key: "branch", width: 20 },
+      { header: "Item", key: "name", width: 25 },
+      { header: "Qty", key: "qty", width: 10 },
+      { header: "Price", key: "price", width: 15 },
+      { header: "Purchase Price", key: "purchasePrice", width: 15 },
+      { header: "Total", key: "total", width: 15 },
+    ];
+    for (const o of orders) {
+      for (const item of o.items || []) {
+        const product = item.product;
+        const variant = product?.variants?.find(
+          (v) => v._id.toString() === item.variantId.toString()
+        );
+        sellerBranchSheet.addRow({
+          seller: product?.seller || "N/A",
+          branch: item.branch?.name || "N/A",
+          name: item.name,
+          qty: item.count,
+          price: item.price,
+          purchasePrice: variant?.purchasePrice || "N/A",
+          total: item.itemTotal,
+        });
+      }
+    }
+
+    // Send workbook
     const buffer = await workbook.xlsx.writeBuffer();
-
+    // ✅ Send and return immediately
     return reply
       .header(
         "Content-Type",
