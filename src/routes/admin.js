@@ -1,10 +1,11 @@
 import {
   getAnalytics,
-  getBranchAnalytics,
-  getFulfillmentDashboard,
-  getSellerAnalytics,
+  // getBranchAnalytics,
+  // getFulfillmentDashboard,
+  // getSellerAnalytics,
 } from "../controllers/analytics/analytics.js";
-import { exportAnalytics } from "../controllers/analytics/export.js";
+import exportAnalytics from "../controllers/analytics/export.js";
+// import { exportAnalytics } from "../controllers/analytics/export.js";
 import invoiceHandler from "../controllers/invoice/main.js";
 import {
   cancelOrderItem,
@@ -54,10 +55,10 @@ export const adminRoutes = async (fastify, options) => {
   // analytics routes
   fastify.get("/analytics/analytics", getAnalytics);
   fastify.get("/analytics/export", exportAnalytics);
-  fastify.get("/analytics/branch/:branchId", getBranchAnalytics);
-  fastify.get("/analytics/seller/:sellerId", getSellerAnalytics);
-  fastify.get(
-    "/fulfillment/admin/dashboard/:branchId",
-    getFulfillmentDashboard
-  );
+  // fastify.get("/analytics/branch/:branchId", getBranchAnalytics);
+  // fastify.get("/analytics/seller/:sellerId", getSellerAnalytics);
+  // fastify.get(
+  //   "/fulfillment/admin/dashboard/:branchId",
+  //   getFulfillmentDashboard
+  // );
 };
