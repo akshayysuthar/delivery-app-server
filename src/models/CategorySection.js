@@ -6,6 +6,7 @@ const categorySectionSchema = new mongoose.Schema({
   subtitle: { type: String },
   bgImage: { type: String }, // URL for banner or background
   headerImage: { type: String }, // URL for banner or background
+  rainImage: { type: String },
   isRain: { type: Boolean },
   categories: [
     {
@@ -28,3 +29,4 @@ const CategorySection = mongoose.model(
   categorySectionSchema
 );
 export default CategorySection;
+
