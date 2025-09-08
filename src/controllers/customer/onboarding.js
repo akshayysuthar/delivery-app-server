@@ -8,17 +8,18 @@ export const completeOnboarding = async (req, reply) => {
       fcmToken, // ✅ destructure fcmToken
     } = req.body;
 
-    const customer = await Customer.findByIdAndUpdate(
-      userId,
-      {
-        name,
-        gender,
-        address,
-        fcmToken, // ✅ save token
-        onboardingStatus: "completed",
-      },
-      { new: true }
-    );
+  const customer = await Customer.findByIdAndUpdate(
+  userId,
+  {
+    name,
+    gender,
+    address,
+    fcmToken, // ✅ token will be stored
+    onboardingStatus: "complete", // 🔧 match schema enum
+  },
+  { new: true }
+);
+
 
     if (!customer) {
       return reply.status(404).send({ message: "Customer not found" });
@@ -31,3 +32,4 @@ export const completeOnboarding = async (req, reply) => {
       .send({ message: "Failed to complete onboarding", error });
   }
 };
+
