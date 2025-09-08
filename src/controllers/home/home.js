@@ -99,8 +99,13 @@ const getSlotsForDays = (area, slots, assignedBranchId, days = 2) => {
 export const home = async (req, reply) => {
   const { pincode } = req.query;
 
-  if (!pincode) {
-    return reply.status(400).send({ message: "Pincode is required." });
+  // if (!pincode) {
+  //   return reply.status(400).send({ message: "Pincode is required." });
+  // }
+
+    // Default to 395009 if pincode is null, empty, or undefined
+  if (!pincode || pincode.trim() === "") {
+    pincode = "395009";
   }
 
   try {
@@ -261,3 +266,4 @@ export const home = async (req, reply) => {
     return reply.status(500).send({ message: "An error occurred", error: err });
   }
 };
+
