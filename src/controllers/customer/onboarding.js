@@ -5,6 +5,7 @@ export const completeOnboarding = async (req, reply) => {
       name,
       gender,
       address, // object with all address fields
+      fcmToken, // ✅ destructure fcmToken
     } = req.body;
 
     const customer = await Customer.findByIdAndUpdate(
@@ -13,6 +14,7 @@ export const completeOnboarding = async (req, reply) => {
         name,
         gender,
         address,
+        fcmToken, // ✅ save token
         onboardingStatus: "completed",
       },
       { new: true }
