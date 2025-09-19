@@ -67,7 +67,7 @@ const customerSchema = new mongoose.Schema(
       city: { type: String },
       state: { type: String },
       pinCode: { type: String },
-      area: { type: String },
+      area: { type: String ,default: "395009" },
       country: { type: String, default: "India" },
       isDefault: { type: Boolean, default: false },
       location: {
@@ -339,3 +339,4 @@ export const SellerUser = mongoose.model("SellerUser", sellerSchema);
 // );
 // export const Admin = mongoose.model("Admin", adminSchema);
 // // export const Customer = mongoose.model("Customer", customerSchema);
+
